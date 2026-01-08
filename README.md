@@ -191,4 +191,6 @@ git remote add origin https://github.com/your-username/campusvibe.git
 - Implement real-time notifications using WebSockets.
 - Add a dedicated admin panel for user management.
 
+<div align="center">
 **CampusVibe – Making campus events effortless and memorable. 🚀**
+</div>
