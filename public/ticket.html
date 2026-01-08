@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#10b981">
+  <title>Your E‑Ticket - CampusVibe</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <script src="/assets/js/lottie.min.js"></script>
+  <style>
+    .ticket { 
+      max-width: 600px; margin: 0 auto; 
+      background: linear-gradient(145deg, #1f2937, #111827); 
+      border-radius: 24px; overflow: hidden; 
+      box-shadow: 0 25px 50px rgba(0,0,0,0.25); 
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .ticket-header { 
+      background: linear-gradient(135deg, #10b981, #059669); 
+      color: white; padding: 32px 32px 24px; text-align: center; 
+    }
+    .ticket-header h2 { margin: 0 0 8px; font-size: 2rem; }
+    .ticket-body { display: grid; grid-template-columns: 1fr 260px; gap: 32px; padding: 32px; }
+    .meta { font-size: 15px; line-height: 1.6; }
+    .meta p { margin: 12px 0; }
+    .meta strong { color: #f9fafb; }
+    .ticket-qr { text-align: center; }
+    .status-badge { 
+      display: inline-block; padding: 6px 16px; border-radius: 20px; 
+      font-size: 13px; font-weight: 600; text-transform: uppercase;
+    }
+    .status-paid { background: rgba(16,185,129,0.2); color: #10b981; }
+    .status-pending { background: rgba(251,191,36,0.2); color: #f59e0b; }
+    .status-cancelled { background: rgba(239,68,68,0.2); color: #ef4444; }
+    .ticket-footer { background: rgba(255,255,255,0.05); padding: 20px 32px; text-align: center; border-top: 1px solid rgba(255,255,255,0.1); }
+    .print-only { display: none; }
+    @media print { 
+      body * { visibility: hidden; } .ticket, .ticket * { visibility: visible; } 
+      .ticket { box-shadow: none; position: absolute; left: 0; top: 0; width: 100%; }
+      .no-print { display: none !important; }
+    }
+    @media (max-width: 768px) { 
+      .ticket-body { grid-template-columns: 1fr; gap: 24px; } 
+      .ticket-qr img { width: 180px; height: 180px; }
+    }
+    .skeleton { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: loading 1.5s infinite; border-radius: 12px; }
+    @keyframes loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  </style>
+</head>
+<body>
+  <header class="cv-header">
+    <div class="container header-inner">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit">
+        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <div class="brand-text">
+          <h1>CampusVibe</h1>
+          <p class="tagline">Ideal Management, Ideal Moments</p>
+        </div>
+      </a>
+      <a class="btn outline" href="/">Home</a>
+    </div>
+  </header>
+
+  <main class="container" style="padding:40px 20px;">
+    <!-- Loading Skeleton -->
+    <div id="loading" style="max-width:600px;margin:0 auto;text-align:center;">
+      <div class="skeleton" style="height:120px;margin:0 auto 24px;"></div>
+      <div class="skeleton" style="width:80%;height:24px;margin:0 auto 16px;"></div>
+      <div class="skeleton" style="width:60%;height:20px;margin:0 auto;"></div>
+      <p style="color:#6b7280;margin-top:24px;">Loading your ticket...</p>
+    </div>
+
+    <!-- Print Button -->
+    <div style="max-width:600px;margin:24px auto;text-align:center;" class="no-print">
+      <button onclick="window.print()" class="btn primary" style="width:200px;">
+        🖨️ Print Ticket
+      </button>
+    </div>
+
+    <div id="ticket-content" style="display:none;">
+      <div id="root"></div>
+    </div>
+    <div id="lottie-ticket" style="height:140px; opacity:.5; margin:40px auto; max-width:600px;" class="no-print"></div>
+  </main>
+
+  <script>
+document.addEventListener('DOMContentLoaded', async function() {
+  var params = new URLSearchParams(location.search);
+  var t = params.get('t');
+  
+  if (!t) {
+    document.getElementById('root').innerHTML = '<div class="alert warn" style="max-width:500px;margin:0 auto;">Invalid ticket link</div>';
+    return;
+  }
+  
+  showSkeleton();
+  loadTicket(t);
+  initLottie();
+});
+
+function showSkeleton() {
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('ticket-content').style.display = 'none';
+}
+
+function loadTicket(t) {
+  fetch('/api/tickets/' + t, { credentials: 'include' })
+    .then(function(res) {
+      if (!res.ok) {
+        if (res.status === 401) location.href = '/login.html';
+        document.getElementById('root').innerHTML = '<div class="alert warn" style="max-width:500px;margin:60px auto;padding:24px;">Ticket not found or access denied</div>';
+        return;
+      }
+      return res.json();
+    })
+    .then(function(data) {
+      if (data) {
+        renderTicket(data.ticket, data.tagline);
+      }
+    })
+    .catch(function(error) {
+      document.getElementById('root').innerHTML = '<div class="alert warn" style="max-width:500px;margin:60px auto;padding:24px;">Failed to load ticket. Please try again.</div>';
+    });
+}
+
+function renderTicket(ticket, tagline) {
+  var participants = [];
+  try { 
+    if (ticket.participants_json) {
+      participants = JSON.parse(ticket.participants_json);
+    }
+  } catch (e) { participants = []; }
+  
+  var groupType = (ticket.group_type || 'single').replace('_', ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+  var paidAmount = (ticket.price_paid_cents || 0) / 100;
+  var dueAmount = (ticket.amount_due_cents || 0) / 100;
+  
+  var statusBadge = getStatusBadge(ticket.payment_status);
+  
+  var eventDate = ticket.end_time 
+    ? new Date(ticket.start_time).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + ' – ' + new Date(ticket.end_time).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + ' IST'
+    : new Date(ticket.start_time).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + ' IST';
+  
+  var html = [
+    '<div class="ticket">',
+      '<div class="ticket-header">',
+        '<h2>' + escapeHtml(ticket.event_title) + '</h2>',
+        '<div style="font-size:15px;opacity:0.9;">' + eventDate + '</div>',
+      '</div>',
+      '<div class="ticket-body">',
+        '<div class="meta">',
+          '<p><strong>Attendee:</strong> ' + escapeHtml(ticket.user_name || 'N/A') + ' (' + escapeHtml(ticket.user_email) + ')</p>',
+          '<p><strong>Location:</strong> ' + escapeHtml(ticket.location || 'TBA') + '</p>',
+          '<p><strong>Ticket ID:</strong> <span style="font-family:monospace;">' + ticket.uuid + '</span></p>',
+          '<p><strong>Type:</strong> ' + groupType + '</p>'
+  ];
+  
+  if (participants.length > 0) {
+    html.push('<div style="margin:16px 0;">');
+    html.push('<strong>Participants (' + participants.length + '):</strong>');
+    html.push('<ul style="margin:8px 0 0 20px;font-size:14px;">');
+    for (var i = 0; i < participants.length; i++) {
+      var p = participants[i];
+      html.push('<li>' + escapeHtml(p.name || 'N/A') + ' (' + escapeHtml(p.roll_number || '-') + ')</li>');
+    }
+    html.push('</ul></div>');
+  }
+  
+  html.push('<p><strong>Status:</strong> <span class="status-badge ' + statusBadge.className + '">' + statusBadge.text + '</span></p>');
+  
+  if (ticket.payment_status === 'paid') {
+    html.push('<p><strong>Amount:</strong> <span style="font-size:18px;color:#10b981;font-weight:bold;">₹' + paidAmount + '</span></p>');
+  } else {
+    html.push('<p><strong>Due:</strong> <span style="font-size:18px;color:#f59e0b;font-weight:bold;">₹' + dueAmount + '</span></p>');
+  }
+  
+  html.push('<p class="ticket-tagline" style="margin-top:24px;font-style:italic;color:#9ca3af;font-size:14px;">"' + escapeHtml(tagline || 'Ideal Management, Ideal Moments') + '"</p>');
+  html.push('</div>');
+  
+  html.push('<div class="ticket-qr">');
+  if (ticket.qr_code) {
+    html.push('<div style="padding:20px;background:rgba(255,255,255,0.05);border-radius:16px;">');
+    html.push('<img src="' + ticket.qr_code + '" alt="QR Code" style="width:220px;height:220px;border-radius:12px;" />');
+    html.push('<p style="margin:12px 0 0 0;color:#9ca3af;font-size:13px;">Scan at entry</p>');
+    html.push('</div>');
+  } else {
+    html.push('<div style="padding:40px;text-align:center;color:#9ca3af;">');
+    html.push('<div style="width:80px;height:80px;border:2px dashed currentColor;border-radius:12px;margin:0 auto 12px;"></div>');
+    html.push('<p>QR Code will appear after payment verification</p>');
+    html.push('</div>');
+  }
+  html.push('</div>');
+  
+  html.push('</div>');
+  html.push('<div class="ticket-footer print-only">');
+  html.push('<p style="margin:0;font-size:12px;color:#9ca3af;">Generated on ' + new Date().toLocaleString('en-IN') + '</p>');
+  html.push('</div></div>');
+  
+  document.getElementById('root').innerHTML = html.join('');
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('ticket-content').style.display = 'block';
+}
+
+function getStatusBadge(status) {
+  var badges = {
+    'paid': { text: 'Confirmed', className: 'status-paid' },
+    'pending': { text: 'Pending Verification', className: 'status-pending' },
+    'verified': { text: 'Verified', className: 'status-paid' },
+    'cancelled': { text: 'Cancelled', className: 'status-cancelled' }
+  };
+  return badges[status] || { text: status, className: 'status-pending' };
+}
+
+function escapeHtml(text) {
+  var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return text.toString().replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
+function initLottie() {
+  try {
+    if (window.lottie) {
+      window.lottie.loadAnimation({
+        container: document.getElementById('lottie-ticket'),
+        renderer: 'svg', loop: true, autoplay: true,
+        path: '/assets/lottie/ticket.json'
+      });
+    }
+  } catch (e) { 
+    console.warn('Lottie failed'); 
+  }
+}
+  </script>
+</body>
+</html>

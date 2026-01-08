@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Event - CampusVibe</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <script src="/assets/js/lottie.min.js"></script>
+</head>
+<body>
+  <header class="cv-header">
+    <div class="container header-inner">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit">
+        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <div class="brand-text">
+          <h1>CampusVibe</h1>
+          <p class="tagline">Ideal Management, Ideal Moments</p>
+        </div>
+      </a>
+      <a class="btn outline" href="/">Home</a>
+    </div>
+  </header>
+
+  <main class="container" style="padding:24px 0;">
+    <div id="root"></div>
+    <div id="lottie-event" style="height:160px; opacity:.5;"></div>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const uuid = params.get('e');
+    const forcedType = (params.get('type') || '').toLowerCase();
+    async function load() {
+      const res = await fetch(`/api/events/${uuid}`);
+      if (!res.ok) { document.getElementById('root').innerHTML = '<div class="alert warn">Event not found</div>'; return; }
+      const { event } = await res.json();
+      const priceSingle = Math.round(((event.price_single_cents ?? event.price_cents ?? 9000) / 100));
+      const priceDuo = Math.round(((event.price_duo_cents ?? 18000) / 100));
+      const priceTrio = Math.round(((event.price_trio_cents ?? 25000) / 100));
+      const allowed = (event.allowed_tiers || 'single').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      let type = ['single','duo','trio'].includes(forcedType) ? forcedType : (allowed[0] || 'single');
+      const isAllowed = allowed.includes(type);
+      const isFull = typeof event.capacity === 'number' && event.remaining <= 0;
+
+      const now = new Date();
+      const eventEndOrStart = event.end_time ? new Date(event.end_time) : new Date(event.start_time);
+      const isEnded = eventEndOrStart <= now;
+
+      const timeRange = event.end_time ? `${new Date(event.start_time).toLocaleString()} – ${new Date(event.end_time).toLocaleString()}` : new Date(event.start_time).toLocaleString();
+      const r = document.getElementById('root');
+
+      r.innerHTML = `
+        <div class="card">
+          <h2>${event.title}</h2>
+          <div class="muted">${timeRange} • ${event.location || ''}</div>
+          <p>${event.description || ''}</p>
+          <p><b>Capacity:</b> ${event.capacity ? `${event.capacity} (${event.remaining} tickets left)` : 'Not specified'}</p>
+
+          <div class="row">
+            <div class="flex-col">
+              <label class="label">Ticket Type</label>
+              <select id="ticketType" class="input" style="max-width:260px;">
+                ${allowed.includes('single') ? '<option value="single">Single</option>' : ''}
+                ${allowed.includes('duo') ? '<option value="duo">Duo</option>' : ''}
+                ${allowed.includes('trio') ? '<option value="trio">Trio</option>' : ''}
+              </select>
+              <p class="muted">This event is configured by the organizer. Only allowed tiers are: ${allowed.join(', ') || 'single'}.</p>
+            </div>
+            <div class="flex-col">
+              <label class="label">Discount code</label>
+              <input id="discount" class="input" placeholder="Discount code" style="max-width:220px;" />
+            </div>
+          </div>
+
+          <div id="participantsWrap" class="card" style="margin-top:12px; background: rgba(255,255,255,0.03);">
+            <h4 style="margin-top:0;">Participant Details</h4>
+            <div id="participants"></div>
+          </div>
+
+          <div class="flex" style="margin-top:10px; align-items:center; justify-content:space-between;">
+            <div id="priceDisplay" class="muted"></div>
+            <div class="flex" style="gap:8px;">
+              <button class="btn primary" id="reg">Register</button>
+              <a class="btn outline" href="/api/events/${event.uuid}/calendar.ics">Add to Calendar</a>
+              <a class="btn outline" href="https://twitter.com/intent/tweet?text=${encodeURIComponent('Join me at ' + event.title)}" target="_blank">Share</a>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const ticketSelect = document.getElementById('ticketType');
+      // set initial value
+      if (allowed.includes(type)) {
+        ticketSelect.value = type;
+      }
+
+      function requiredCount(t) { return t === 'trio' ? 3 : (t === 'duo' ? 2 : 1); }
+      function renderParticipants(t) {
+        const n = requiredCount(t);
+        const cont = document.getElementById('participants');
+        cont.innerHTML = '';
+        for (let i = 1; i <= n; i++) {
+          const div = document.createElement('div');
+          div.className = 'row';
+          div.innerHTML = `
+            <div class="flex-col"><label class="label">Participant ${i} Name</label><input class="input" id="pName${i}" placeholder="Full name" /></div>
+            <div class="flex-col"><label class="label">Participant ${i} Registration No.</label><input class="input" id="pRoll${i}" placeholder="Roll/Reg No." /></div>
+          `;
+          cont.appendChild(div);
+        }
+      }
+      function currentPrice(t) {
+        return t === 'trio' ? priceTrio : (t === 'duo' ? priceDuo : priceSingle);
+      }
+      function updatePriceDisplay() {
+        document.getElementById('priceDisplay').textContent = `Amount payable: ₹${currentPrice(type)}`;
+      }
+
+      function updateRegButtonState() {
+        const isAllowedNow = allowed.includes(type);
+        const reg = document.getElementById('reg');
+        const disabled = !isAllowedNow || isFull || isEnded;
+        const label = isEnded
+          ? 'Event Ended'
+          : (isFull ? 'Event Full' : (isAllowedNow ? 'Register' : 'Tier not allowed'));
+        reg.disabled = disabled;
+        reg.textContent = label;
+      }
+
+      renderParticipants(type);
+      updatePriceDisplay();
+      updateRegButtonState();
+
+      // when user changes ticket type
+      ticketSelect.addEventListener('change', () => {
+        type = ticketSelect.value;
+        renderParticipants(type);
+        updatePriceDisplay();
+        updateRegButtonState();
+      });
+
+      document.getElementById('reg').addEventListener('click', async () => {
+        const isAllowedNow = allowed.includes(type);
+        if (!isAllowedNow || isFull || isEnded) return;
+        const code = document.getElementById('discount').value.trim();
+        const need = requiredCount(type);
+        const participants = [];
+        for (let i = 1; i <= need; i++) {
+          participants.push({ name: document.getElementById(`pName${i}`).value.trim(), roll_number: document.getElementById(`pRoll${i}`).value.trim() });
+        }
+        const body = { discount_code: code, ticket_type: type, participants };
+        const res = await fetch(`/api/events/${event.uuid}/register`, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body) });
+        if (res.status === 401) { location.href = '/login.html'; return; }
+        const txt = await res.text();
+        if (res.status >= 400) { alert('Failed to register: ' + txt); return; }
+        const data = JSON.parse(txt);
+        if (data.requires_payment) {
+          sessionStorage.setItem('pending_ticket', data.ticket_uuid);
+          location.href = `/payment.html?e=${event.uuid}&t=${data.ticket_uuid}`;
+        } else if (data.ticket) {
+          location.href = `/ticket.html?t=${data.ticket.uuid}`;
+        }
+      });
+    }
+    load();
+    try {
+      if (window.lottie) {
+        window.lottie.loadAnimation({
+          container: document.getElementById('lottie-event'),
+          renderer: 'svg', loop: true, autoplay: true,
+          path: '/assets/lottie/event.json'
+        });
+      }
+    } catch (e) { /* ignore */ }
+  </script>
+</body>
+</html>

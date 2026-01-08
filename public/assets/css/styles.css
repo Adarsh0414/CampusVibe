@@ -1,0 +1,298 @@
+/* CampusVibe Professional UI Redesign + Engaging Starfield Background */
+/* Typography, color system, spacing scale, and components refined for a clean, modern, accessible UI */
+
+/* =========================
+   Design Tokens
+   ========================= */
+:root {
+  /* Palette */
+  --bg: #0b1021;               /* App background */
+  --bg-elev-1: #0e1534;        /* Elevated surfaces */
+  --bg-elev-2: #111a3d;
+  --surface: #12193a;          /* Cards */
+  --surface-2: #0f1735;
+  --glass: rgba(255,255,255,0.06);
+
+  --fg: #f4f7ff;               /* Text */
+  --muted: #b7bedb;            /* Muted text */
+  --muted-2: #9aa3c1;
+
+  --primary: #6c8cff;
+  --primary-2: #4a6cff;
+  --accent: #00d1b2;
+  --danger: #ef476f;
+  --warning: #ffb703;
+  --success: #00c48c;
+
+  --border: #223066;           /* Subtle borders */
+  --border-2: #2a3771;
+
+  /* Shadows */
+  --shadow-sm: 0 6px 20px rgba(0,0,0,0.25);
+  --shadow-md: 0 14px 40px rgba(0,0,0,0.35);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.45);
+
+  /* Typography */
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --fs-1: 2.2rem;  /* h1 */
+  --fs-2: 1.6rem;  /* h2 */
+  --fs-3: 1.25rem; /* h3 */
+  --fs-4: 1rem;    /* body */
+  --fs-5: 0.9rem;  /* small */
+
+  /* Radii */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+
+  /* Spacing */
+  --sp-1: 6px;
+  --sp-2: 10px;
+  --sp-3: 14px;
+  --sp-4: 18px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* Transitions */
+  --trans-fast: 120ms ease;
+  --trans: 180ms ease;
+}
+
+/* =========================
+   Base
+   ========================= */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; background: transparent; color: var(--fg);
+  font-family: var(--font); font-size: 16px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+img { max-width: 100%; height: auto; display: block; }
+.container { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 18px; }
+
+/* Links */
+ a { color: var(--primary); text-decoration: none; }
+ a:hover { color: var(--accent); }
+
+/* =========================
+   Animated Starfield Background (engaging effect)
+   ========================= */
+/* Two fixed-position layers behind all content: a subtle image overlay and animated star gradients */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+/* Background image + sparse star layer (slow) */
+body::before {
+  z-index: -2;
+  /* Unsplash sky image (faint) + multiple tiny radial stars that repeat */
+  background:
+    radial-gradient(2px 2px at 20px 30px, rgba(255,255,255,0.85), transparent 40%),
+    radial-gradient(1.5px 1.5px at 180px 120px, rgba(255,255,255,0.75), transparent 40%),
+    radial-gradient(1px 1px at 90px 60px, rgba(255,255,255,0.65), transparent 40%),
+    radial-gradient(2px 2px at 250px 200px, rgba(255,255,255,0.8), transparent 40%),
+    url('https://images.unsplash.com/photo-1462331940025-496dfbfc7564?q=80&w=1920&auto=format&fit=crop') center/cover no-repeat;
+  background-repeat: repeat, repeat, repeat, repeat, no-repeat;
+  background-size: 220px 220px, 320px 320px, 280px 280px, 360px 360px, cover;
+  opacity: 1.99;
+  filter: saturate(0.95) brightness(1.05);
+  animation: starsFallSlow 120s linear infinite;
+}
+/* Denser star layer (faster) */
+body::after {
+  z-index: -1;
+  background:
+    radial-gradient(1.5px 1.5px at 40px 80px, rgba(255,255,255,0.85), transparent 40%),
+    radial-gradient(1px 1px at 160px 30px, rgba(255,255,255,0.75), transparent 40%),
+    radial-gradient(2px 2px at 300px 100px, rgba(255,255,255,0.95), transparent 40%);
+  background-repeat: repeat;
+  background-size: 260px 260px, 340px 340px, 420px 420px;
+  opacity: 0.5;
+  animation: starsFallFast 60s linear infinite;
+}
+@keyframes starsFallSlow {
+  0%   { background-position: 0 0, 0 0, 0 0, 0 0, center; }
+  100% { background-position: 0 900px, 0 1100px, 0 1000px, 0 1200px, center; }
+}
+@keyframes starsFallFast {
+  0%   { background-position: 0 0, 0 0, 0 0; }
+  100% { background-position: 0 1400px, 0 1200px, 0 1600px; }
+}
+
+/* =========================
+   Header / Nav
+   ========================= */
+.cv-header {
+  position: sticky; top: 0; z-index: 20;
+  background: transparent;
+  border-bottom: 1px solid rgba(255,255,255,0.18);
+  backdrop-filter: blur(8px) saturate(1.05);
+}
+.header-inner { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; }
+.brand { display: flex; align-items: center; gap: 12px; color: inherit; }
+.logo { width: 40px; height: 40px; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.4)); }
+.brand-text h1 { margin: 0; font-size: 1.15rem; }
+.tagline { margin: 0; color: var(--muted); font-size: var(--fs-5); }
+
+.nav { display: flex; align-items: center; gap: 12px; }
+.nav a { color: var(--fg); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid transparent; transition: background var(--trans-fast), border var(--trans-fast), color var(--trans-fast); }
+.nav a:hover { background: rgba(108,140,255,0.12); border-color: var(--border-2); }
+
+/* =========================
+   Hero / Landing
+   ========================= */
+.hero { padding: 68px 0; text-align: center; background: transparent !important; }
+.gradient-bg {
+  background: transparent !important;
+}
+.hero-inner { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.hero h2 { margin: 0; font-size: 2.6rem; letter-spacing: .4px; }
+.hero p { margin: 0 20px 22px; color: var(--muted); max-width: 860px; }
+.hero-actions { display: flex; gap: 12px; justify-content: center; }
+
+.reveal { opacity: 0; transform: translateY(8px); animation: reveal .7s ease forwards; }
+.delay-1 { animation-delay: .12s; } .delay-2 { animation-delay: .24s; } .delay-3 { animation-delay: .36s; }
+@keyframes reveal { to { opacity: 1; transform: translateY(0); } }
+
+.feature-bar { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; margin-top: 24px; }
+.feature { display: flex; gap: 8px; align-items: center; justify-content: center; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.18); background: transparent; color: var(--fg); transition: transform var(--trans), background var(--trans); }
+.feature:hover { transform: translateY(-2px); background: rgba(108,140,255,.14); }
+@media (max-width: 900px) { .feature-bar { grid-template-columns: repeat(3, 1fr); } }
+
+/* =========================
+   Layout / Grid / Cards
+   ========================= */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+@media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+.card {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+  box-shadow: none;
+  backdrop-filter: none;
+  transition: transform var(--trans), box-shadow var(--trans);
+}
+.card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.card h2, .card h3, .card h4 { margin-top: 0; }
+.card .muted { color: var(--muted); font-size: var(--fs-5); }
+
+/* Subtle appearing animation */
+.card.appear { animation: pop .25s ease both; }
+@keyframes pop { from { transform: scale(.985); opacity: .6; } to { transform: scale(1); opacity: 1; } }
+
+/* =========================
+   Buttons
+   ========================= */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 10px 14px; border-radius: 12px; border: 1px solid transparent;
+  color: var(--fg); background: transparent; cursor: pointer; text-decoration: none;
+  transition: transform var(--trans-fast), background var(--trans), border var(--trans), box-shadow var(--trans);
+}
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(108,140,255,0.35); }
+
+.btn.primary {
+  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+  border-color: rgba(255,255,255,0.06);
+  box-shadow: 0 10px 25px rgba(108,140,255,.25);
+}
+.btn.primary:hover { transform: translateY(-1px); filter: brightness(1.02); }
+
+.btn.outline {
+  border-color: var(--primary); color: var(--primary);
+  background: rgba(108,140,255,0.08);
+}
+.btn.outline:hover { background: rgba(108,140,255,0.16); transform: translateY(-1px); }
+
+.btn.danger { background: linear-gradient(180deg, var(--danger), #d43d61); }
+.btn.danger:hover { transform: translateY(-1px); filter: brightness(1.03); }
+
+.pulse { animation: pulse 1.4s infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+
+/* =========================
+   Forms
+   ========================= */
+.form { display: grid; gap: var(--sp-3); }
+.filters { display: flex; gap: var(--sp-3); padding: var(--sp-3); border: 1px solid rgba(255,255,255,0.18); background: transparent; border-radius: var(--radius-md); margin: var(--sp-4) 0; }
+.label { margin-bottom: 6px; color: var(--muted); font-size: var(--fs-5); }
+
+.input {
+  width: 100%; padding: 11px 12px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.22); background: transparent; color: var(--fg);
+  transition: border var(--trans), box-shadow var(--trans), background var(--trans);
+}
+.input::placeholder { color: #8d96b8; }
+.input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(108,140,255,0.25); background: transparent; }
+
+.flex { display: flex; gap: var(--sp-3); }
+.flex-col { display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+@media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+
+/* =========================
+   Footer
+   ========================= */
+.cv-footer { border-top: 1px solid var(--border); margin-top: 40px; padding: 20px 0; text-align: center; color: var(--muted); }
+
+/* =========================
+   Ticket (Printable white card inside dark app)
+   ========================= */
+.ticket { background: transparent; color: var(--fg); max-width: 780px; margin: 24px auto; border-radius: 14px; border: 1px solid rgba(255,255,255,0.2); overflow: hidden; box-shadow: none; }
+.ticket-header { background: transparent; color: var(--fg); padding: 16px; display: flex; align-items: center; justify-content: space-between; }
+.ticket-header h2 { margin: 0; font-size: 1.2rem; letter-spacing: .2px; }
+.ticket-body { padding: 18px; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.ticket-body .meta { font-size: 0.98rem; color: var(--fg); }
+.ticket-qr { text-align: center; }
+.ticket-tagline { margin-top: 8px; font-size: 0.92rem; color: var(--muted); text-align: left; }
+@media (max-width: 760px) { .ticket-body { grid-template-columns: 1fr; } }
+
+/* =========================
+   Tables
+   ========================= */
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { border-bottom: 1px solid #263062; padding: 10px 8px; text-align: left; }
+.table th { color: var(--muted); font-weight: 600; }
+
+/* =========================
+   Alerts
+   ========================= */
+.alert { padding: 10px 12px; border-radius: 10px; margin: 10px 0; border: 1px solid transparent; }
+.alert.info { background: transparent; border-color: rgba(108,140,255,0.45); color: #dfe6ff; }
+.alert.warn { background: transparent; border-color: rgba(239,71,111,0.55); color: #ffdce4; }
+.alert.success { background: transparent; border-color: rgba(0,196,140,0.55); color: #d6fff1; }
+
+/* =========================
+   Utilities
+   ========================= */
+.spin-in { animation: spinIn .6s ease both; }
+@keyframes spinIn { from { transform: rotate(-14deg) scale(.94); opacity: 0; } to { transform: rotate(0) scale(1); opacity: 1; } }
+.muted { color: var(--muted); }
+.glass { background: linear-gradient(180deg, rgba(12,19,48,0.7), rgba(12,19,48,0.3)); }
+
+/* =========================
+   Page‑specific subtle adjustments
+   ========================= */
+/* Ensure Lottie containers do not intercept clicks */
+#lottie-hero, #lottie-event, #lottie-dash, #lottie-myt, #lottie-ticket, #lottie-profile, #lottie-faq, #lottie-scan, #lottie-login, #lottie-register, #lottie-pay {
+  pointer-events: none;
+}
+
+/* Improve focus states for accessibility on links styled as buttons */
+.btn.outline:focus-visible, .btn.primary:focus-visible, .btn.danger:focus-visible, .nav a:focus-visible {
+  box-shadow: 0 0 0 3px rgba(108,140,255,0.35);
+}
+
+/* Home cards excerpt paragraph spacing */
+.grid .card p { margin: 8px 0 0; color: var(--muted); }
+
+/* Subtle divider for card content sections */
+.card .divider { height: 1px; background: var(--border); margin: 10px 0; opacity: .65; }

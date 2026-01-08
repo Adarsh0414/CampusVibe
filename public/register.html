@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Register - CampusVibe</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <script src="/assets/js/lottie.min.js"></script>
+  <style>
+  /* Add to existing styles */
+  .input.invalid { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
+  .input.valid { border-color: #10b981 !important; box-shadow: 0 0 0 3px rgba(16,185,129,.2); }
+  .password-rules { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+  .role-toggle { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .role-btn { flex: 1; min-width: 140px; }
+  @media (max-width: 480px) { .role-toggle { flex-direction: column; } }
+</style>
+</head>
+<body>
+  <header class="cv-header">
+    <div class="container header-inner">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit">
+        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <div class="brand-text">
+          <h1>CampusVibe</h1>
+          <p class="tagline">Ideal Management, Ideal Moments</p>
+        </div>
+      </a>
+      <a href="/" class="btn" style="text-decoration:none;color:inherit">Home</a>
+    </div>
+  </header>
+
+  <main class="container" style="padding:0;">
+    <style>
+      .auth-wrap { position: relative; min-height: calc(100vh - 64px); display: grid; place-items: center; padding: 40px 16px; }
+      .anim-bg { position: fixed; inset: 0; z-index: -1; background:
+        radial-gradient(1000px 500px at 10% 10%, rgba(108,140,255,0.18), transparent 60%),
+        radial-gradient(900px 450px at 90% 0%, rgba(0,209,178,0.14), transparent 60%),
+        linear-gradient(180deg, #0b1021 0%, #0e1738 100%);
+        animation: bgShift 18s ease-in-out infinite alternate; }
+      @keyframes bgShift { from { filter: hue-rotate(0deg) saturate(1); } to { filter: hue-rotate(20deg) saturate(1.1); } }
+      .orb { position: absolute; width: 320px; height: 320px; border-radius: 50%; filter: blur(18px); mix-blend-mode: screen; opacity: .5; }
+      .o1 { top: 6%; left: 4%; background: radial-gradient(circle at 30% 30%, rgba(108,140,255,.55), transparent 60%); animation: floatY 10s ease-in-out infinite; }
+      .o2 { bottom: 8%; left: 15%; background: radial-gradient(circle at 40% 40%, rgba(0,209,178,.45), transparent 60%); animation: floatX 13s ease-in-out infinite; }
+      .o3 { top: 15%; right: 12%; background: radial-gradient(circle at 50% 50%, rgba(140,82,255,.45), transparent 60%); animation: floatY 11s ease-in-out infinite .5s; }
+      .o4 { bottom: 12%; right: 6%; background: radial-gradient(circle at 60% 60%, rgba(255,111,145,.40), transparent 60%); animation: floatX 12s ease-in-out infinite .2s; }
+      @keyframes floatY { 0%, 100% { transform: translateY(-8px); } 50% { transform: translateY(8px); } }
+      @keyframes floatX { 0%, 100% { transform: translateX(-10px); } 50% { transform: translateX(10px); } }
+      .auth-card { width: 100%; max-width: 540px; border-radius: 16px; border: 1px solid var(--border); background: rgba(17, 24, 39, 0.6); backdrop-filter: blur(12px); box-shadow: var(--shadow); padding: 22px; }
+      .auth-title { margin: 0 0 6px; font-size: 1.6rem; }
+      .auth-sub { margin: 0 0 16px; color: var(--muted); }
+      .btn.primary { box-shadow: 0 10px 25px rgba(108,140,255,.25); }
+      .btn.primary:hover { transform: translateY(-1px); }
+    </style>
+    
+    <div class="auth-wrap">
+      <div class="anim-bg">
+        <span class="orb o1"></span>
+        <span class="orb o2"></span>
+        <span class="orb o3"></span>
+        <span class="orb o4"></span>
+        <div id="lottie-register" style="position:absolute; inset:0; opacity:.35; pointer-events:none;"></div>
+      </div>
+
+      <div class="auth-card">
+        <h2 class="auth-title">Create your account</h2>
+        <p class="auth-sub">Join CampusVibe and experience “Ideal Management, Ideal Moments.”</p>
+        <div id="msg"></div>
+
+        <form id="registerForm" novalidate>
+          <div class="flex-col">
+            <label class="label">Full Name <span style="color:#ef4444;">*</span></label>
+            <input class="input" id="name" placeholder="John Doe" required minlength="2" maxlength="50" />
+          </div>
+          <div class="flex-col">
+            <label class="label">Email Address <span style="color:#ef4444;">*</span></label>
+            <input class="input" id="email" type="email" placeholder="john@college.edu" required />
+          </div>
+          <div class="row">
+            <div class="flex-col">
+              <label class="label">Mobile <span style="color:#ef4444;">*</span></label>
+              <input class="input" id="mobile" placeholder="9876543210" required pattern="[0-9]{10}" />
+              <small class="muted">10-digit number only</small>
+            </div>
+            <div class="flex-col">
+              <label class="label">Roll Number</label>
+              <input class="input" id="roll" placeholder="20XX-CS-123" maxlength="20"/>
+            </div>
+          </div>
+          <div class="flex-col">
+            <label class="label">Password <span style="color:#ef4444;">*</span></label>
+            <input class="input" id="password" type="password" placeholder="At least 8 characters" required minlength="8" />
+            <div class="password-rules" id="passwordRules">
+              • Minimum 8 characters<br>
+              • 1 uppercase, 1 number, 1 special char
+            </div>
+          </div>
+
+          <div class="role-toggle">
+            <button type="button" class="btn primary role-btn active" data-role="user" id="userRole">
+              👤 Student
+            </button>
+            <button type="button" class="btn outline role-btn" data-role="organizer" id="orgRole">
+              🎪 Organizer
+            </button>
+          </div>
+
+          <!-- Actions -->
+           <button class="btn primary" type="submit" id="submitBtn" style="width:100%;">
+            <span class="spinner" style="display:none;"></span>
+            Create Account
+          </button>
+          
+          <div style="text-align:center;margin:20px 0;">
+            <span style="color:var(--muted);">or</span>
+          </div>
+          
+          <a class="btn outline" href="#" id="googleBtn" style="width:100%;justify-content:center;"> 🌐 Continue with Google </a>
+        </form>
+        
+        <p class="muted" style="text-align:center;margin-top:24px;"> Already have an account? <a href="/login.html">Sign in</a></p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+document.addEventListener('DOMContentLoaded', () => {
+  initLottie();
+  initForm();
+});
+
+function initLottie() {
+  try {
+    if (window.lottie) {
+      window.lottie.loadAnimation({
+        container: document.getElementById('lottie-register'),
+        renderer: 'svg', loop: true, autoplay: true,
+        path: '/assets/lottie/register.json'
+      });
+    }
+  } catch (e) { 
+    console.warn('Lottie failed'); 
+  }
+}
+
+function initForm() {
+  const form = document.getElementById('registerForm');
+  const msg = document.getElementById('msg');
+  
+  // Role toggle
+  document.querySelectorAll('.role-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.role-btn.active')?.classList.remove('active');
+      btn.classList.add('active');
+    });
+  });
+  
+  // Real-time validation
+  ['name', 'email', 'mobile', 'password'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('blur', () => validateField(el));
+    el.addEventListener('input', () => clearFieldError(el));
+  });
+  
+  // Password strength
+  document.getElementById('password').addEventListener('input', checkPasswordStrength);
+  
+  // Form submit
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    
+    setLoading(true);
+    const role = document.querySelector('.role-btn.active').dataset.role;
+    
+    try {
+      const body = {
+        name: document.getElementById('name').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        mobile: document.getElementById('mobile').value.trim(),
+        roll_number: document.getElementById('roll').value.trim(),
+        password: document.getElementById('password').value
+      };
+      
+      const endpoint = role === 'organizer' ? '/api/auth/register-organizer' : '/api/auth/register';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body)
+      });
+      
+      if (res.ok) {
+        showMessage('✅ Account created successfully! Redirecting...', 'success');
+        setTimeout(() => {
+          location.href = role === 'organizer' ? '/dashboard.html' : '/profile.html';
+        }, 1500);
+      } else {
+        const { error } = await res.json();
+        showMessage(`❌ ${error || 'Registration failed'}`, 'error');
+      }
+    } catch (error) {
+      showMessage('Network error. Please check your connection.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  });
+  
+  // Google OAuth
+  document.getElementById('googleBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    window.location.href = '/api/auth/google/start';
+  });
+}
+
+function validateForm() {
+  let valid = true;
+  ['name', 'email', 'mobile', 'password'].forEach(id => {
+    valid = validateField(document.getElementById(id)) && valid;
+  });
+  return valid;
+}
+
+function validateField(el) {
+  el.classList.remove('invalid', 'valid');
+  
+  if (!el.value.trim()) {
+    if (el.hasAttribute('required')) {
+      el.classList.add('invalid');
+      return false;
+    }
+    return true;
+  }
+  
+  if (el.id === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(el.value)) {
+    el.classList.add('invalid');
+    return false;
+  }
+  
+  if (el.id === 'mobile' && !/^\d{10}$/.test(el.value)) {
+    el.classList.add('invalid');
+    return false;
+  }
+  
+  if (el.id === 'password' && !isStrongPassword(el.value)) {
+    el.classList.add('invalid');
+    return false;
+  }
+  
+  el.classList.add('valid');
+  return true;
+}
+
+function isStrongPassword(password) {
+  return password.length >= 8 && 
+         /[A-Z]/.test(password) && 
+         /\d/.test(password) && 
+         /[!@#$%^&*]/.test(password);
+}
+
+function checkPasswordStrength() {
+  const pw = document.getElementById('password').value;
+  const rules = document.getElementById('passwordRules');
+  rules.innerHTML = `
+    <span style="color:${pw.length >= 8 ? '#10b981' : '#9ca3af'}">• 8+ chars</span><br>
+    <span style="color:${/[A-Z]/.test(pw) ? '#10b981' : '#9ca3af'}">• Uppercase</span><br>
+    <span style="color:${/\d/.test(pw) ? '#10b981' : '#9ca3af'}">• Number</span><br>
+    <span style="color:${/[!@#$%^&*]/.test(pw) ? '#10b981' : '#9ca3af'}">• Special char</span>
+  `;
+}
+
+function clearFieldError(el) {
+  el.classList.remove('invalid');
+}
+
+function setLoading(loading) {
+  const btn = document.getElementById('submitBtn');
+  const spinner = btn.querySelector('.spinner');
+  btn.disabled = loading;
+  
+  if (loading) {
+    spinner.style.display = 'inline-block';
+    btn.innerHTML = '<span class="spinner"></span>Creating Account...';
+  } else {
+    spinner.style.display = 'none';
+    btn.innerHTML = 'Create Account';
+  }
+}
+
+function showMessage(text, type) {
+  const msg = document.getElementById('msg');
+  msg.innerHTML = `<div class="alert ${type}">${text}</div>`;
+  setTimeout(() => msg.innerHTML = '', 5000);
+}
+</script>
+</body>
+</html>

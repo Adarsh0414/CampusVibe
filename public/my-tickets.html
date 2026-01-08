@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My Tickets - CampusVibe</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <!-- SEO + PWA -->
+  <meta name="theme-color" content="#10b981">
+  <script src="/assets/js/lottie.min.js"></script>
+  <style>
+    /* Enhanced ticket card styles */
+    .ticket-card { 
+      border-radius: 12px; padding: 20px; transition: all 0.2s; 
+      border-left: 4px solid #10b981; position: relative; overflow: hidden;
+    }
+    .ticket-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+      background: linear-gradient(90deg, #10b981, #34d399);
+    }
+    .ticket-status { 
+      padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      display: inline-block; margin: 8px 0;
+    }
+    .status-pending { background: #fef3c7; color: #d97706; }
+    .status-verified { background: #d1fae5; color: #059669; }
+    .status-used { background: #f3e8ff; color: #7c3aed; }
+    .ticket-date { font-size: 14px; opacity: 0.8; margin: 4px 0; }
+    .ticket-qr { 
+      background: #f8fafc; border-radius: 8px; padding: 12px; 
+      text-align: center; margin: 12px 0; font-family: monospace;
+    }
+    .empty-state { 
+      text-align: center; padding: 4rem 2rem; color: #64748b;
+      grid-column: 1 / -1;
+    }
+    .empty-state svg { height: 80px; opacity: 0.5; margin-bottom: 16px; }
+    .skeleton { 
+      background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+      background-size: 200% 100%; animation: skeleton-loading 1.5s infinite;
+      border-radius: 12px; height: 120px;
+    }
+    @keyframes skeleton-loading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="cv-header glass">
+    <div class="container header-inner">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit">
+        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <div class="brand-text">
+          <h1>CampusVibe</h1>
+          <p class="tagline">Ideal Management, Ideal Moments</p>
+        </div>
+      </a>
+      <nav class="nav">
+        <a href="/" class="nav-link">Home</a>
+        <a href="/dashboard.html" class="nav-link">Dashboard</a>
+        <a href="/profile.html" class="nav-link">Profile</a>
+        <a href="/faq.html" class="nav-link">Help</a>
+        <a href="#" id="logoutBtn" class="btn outline">Logout</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container" style="padding:24px 0;">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+      <h2>My Tickets</h2>
+      <span class="status-badge" id="ticketCount" style="background:#10b981;color:white;padding:4px 8px;border-radius:20px;font-size:12px;">0</span>
+    </div>
+    
+    <div id="lottie-myt" style="height:130px; opacity:.5; margin-bottom:24px;"></div>
+    
+    <!-- Skeleton loading + Content -->
+    <div id="root" class="grid">
+      <!-- Loading skeletons -->
+      <div class="ticket-card skeleton"></div>
+      <div class="ticket-card skeleton"></div>
+      <div class="ticket-card skeleton"></div>
+    </div>
+  </main>
+
+  <script>
+    // Enhanced production ticket loader
+    async function loadTickets() {
+      const root = document.getElementById('root');
+      const countEl = document.getElementById('ticketCount');
+      
+      try {
+        // Show skeletons during load
+        root.innerHTML = `
+          <div class="ticket-card skeleton" style="height:180px;"></div>
+          <div class="ticket-card skeleton" style="height:160px;"></div>
+          <div class="ticket-card skeleton" style="height:170px;"></div>
+        `;
+        
+        const res = await fetch('/api/tickets', { credentials: 'include' });
+        if (res.status === 401) {
+          location.href = '/login.html';
+          return;
+        }
+        
+        const { tickets = [] } = await res.json();
+        countEl.textContent = tickets.length;
+        
+        if (!tickets.length) {
+          root.innerHTML = `
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93s3.06-7.44 7-7.93V17.93zm2-13.86c1.6.46 3 1.48 4 2.97V17.93l-4-1.48z"/>
+              </svg>
+              <h3>No tickets yet</h3>
+              <p>Browse events and register to get your first ticket!</p>
+              <a href="/" class="btn primary">Find Events</a>
+            </div>
+          `;
+          return;
+        }
+        
+        // Render tickets with staggered animation
+        root.innerHTML = tickets.map((t, i) => `
+          <div class="ticket-card appear" style="animation-delay: ${i * 80}ms;">
+            <h3 style="margin:0 0 8px 0; font-size:1.1rem;">${t.event_title}</h3>
+            <div class="ticket-date">
+              📅 ${new Date(t.start_time).toLocaleString('en-IN', { 
+                weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+              })}
+              ${t.location ? ` • 📍 ${t.location}` : ''}
+            </div>
+            
+            <div class="ticket-status status-${t.payment_status.toLowerCase().replace(' ', '-')}">
+              ${t.payment_status === 'verified' ? '✅ Ready to use' : 
+                t.payment_status === 'pending' ? '⏳ Payment pending' : 
+                t.payment_status === 'used' ? '🎫 Used' : t.payment_status}
+            </div>
+            
+            <div class="flex gap-2" style="margin-top:16px;">
+              <a class="btn outline" href="/event.html?e=${t.event_uuid}" style="flex:1;">
+                📋 View Event
+              </a>
+              <a class="btn primary" href="/ticket.html?t=${t.uuid}" style="flex:1;">
+                🎫 View Ticket
+              </a>
+            </div>
+            
+            ${t.qr_code ? `
+              <div class="ticket-qr">
+                <div style="font-size:20px; letter-spacing:2px;">${t.qr_code}</div>
+                <small>QR Code for check-in</small>
+              </div>
+            ` : ''}
+          </div>
+        `).join('');
+        
+      } catch (error) {
+        root.innerHTML = `
+          <div class="empty-state">
+            <h3>Failed to load tickets</h3>
+            <p>Please check your connection and try again</p>
+            <button class="btn primary" onclick="loadTickets()">Retry</button>
+          </div>
+        `;
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadTickets();
+      
+      // Lottie animation
+      try {
+        if (window.lottie) {
+          window.lottie.loadAnimation({
+            container: document.getElementById('lottie-myt'),
+            renderer: 'svg', loop: true, autoplay: true,
+            path: '/assets/lottie/ticket.json'
+          });
+        }
+      } catch (e) { console.warn('Lottie failed'); }
+      
+      // Logout
+      document.getElementById('logoutBtn')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+        } catch (e) {}
+        location.href = '/';
+      });
+    });
+  </script>
+</body>
+</html>
