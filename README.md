@@ -8,29 +8,78 @@ CampusVibe is a full-stack web application built for efficient campus event mana
 
 https://github.com/user-attachments/assets/68cb29be-3b74-4084-beb2-19d8928dd3ae
 
+### Screenshots
+### Landing/Home Page
+![CampusVibe Landing Page]<img width="1890" height="910" alt="LandingHome Page" src="https://github.com/user-attachments/assets/4b495e53-0b73-48b8-b017-01d8017ecd6e" />
 
+### My Tickets Page
+![My Tickets]<img width="1908" height="910" alt="My Tickets Page" src="https://github.com/user-attachments/assets/8253f725-1f80-45b8-ad1f-ddf65f39abdd" />
+<img width="1897" height="915" alt="My Tickets Page1" src="https://github.com/user-attachments/assets/8840cc46-5b2d-4015-86cc-de3303b28b8a" />
+
+### Organizer Dashboard (Create Event)
+![Organizer Dashboard]<img width="1894" height="914" alt="Dashboard (Create Event)" src="https://github.com/user-attachments/assets/9317e221-6efc-4372-83ad-bc61c6f0a9c1" />
+
+### Attendance Scanning
+![QR Attendance Scan]<img width="1893" height="918" alt="Attendance Scanning" src="https://github.com/user-attachments/assets/0c3a5769-038f-415b-adf4-95fb73341d50" />
+
+### Registration Page
+![Registration]<img width="1897" height="911" alt="Registration Page" src="https://github.com/user-attachments/assets/dc4f6f22-f412-430f-a3c8-017da221200a" />
+
+### User Profile
+![User Profile]<img width="1908" height="919" alt="User Profile" src="https://github.com/user-attachments/assets/286d6929-4aa9-4ec7-8a23-2ad5dbc3bfd6" />
+
+### FAQ & Help
+![FAQ Help]<img width="1885" height="911" alt="FAQ" src="https://github.com/user-attachments/assets/06c50af8-92c6-4866-9c1e-b2660f392963" />
 
 ## Features
 
-- **User Roles:** The platform supports three user roles:
-    - **Student:** Can view public events, register for them, and manage their tickets.
-    - **Committee:** Can create, manage, and monitor their own events. They can also manage payment proofs and attendance.
-    - **Admin:** Has full control over the platform, including managing users and all events.
-- **Event Management:** Organizers can create events with detailed information such as title, description, category, start and end times, location, and capacity. They can also set events as "draft" or "published" and "public" or "private".
-- **Ticketing:**
-    - Supports single, duo, and trio ticket types with different pricing tiers.
-    - Free and paid events.
-    - Manual payment verification via UPI/bank transfer proof uploads.
-    - QR code generation for tickets.
-- **Attendance Tracking:** Organizers can scan QR codes to mark attendance. Manual attendance marking is also supported.
-- **Payment Integration:**
-    - Organizers can provide their bank account or UPI details for receiving payments.
-    - Integration with Stripe and Razorpay is planned (placeholders exist).
-- **Discounts:** Organizers can create discount codes for their events.
-- **Waitlist:** If an event is full, students can join a waitlist.
-- **Notifications:** The platform has a system for sending email and SMS notifications (placeholders exist).
-- **Analytics:** Organizers can view analytics for their events, including total registrations, paid attendees, and check-ins.
-- **Calendar Export:** Events can be exported to an ICS file for easy addition to calendar applications.
+### User Roles
+- **Students** — Browse public events, register, upload payment proofs, view and manage personal tickets.
+- **Organizers (Committees)** — Create/edit events, manage registrations, verify payments, scan QR codes for attendance, view analytics.
+- **Administrators** — Full control over users, events, and platform settings.
+
+### Event & Ticketing
+- Create events (title, description, category, date/time, location, capacity).
+- Public/private and draft/published states.
+- Ticket types: Single, Duo, Trio with custom pricing.
+- Free or paid events.
+- Manual payment verification via UPI/bank transfer proof uploads.
+- Secure QR-code e-tickets.
+- Discount codes and waitlist support.
+- ICS calendar export.
+
+### Attendance & Analytics
+- Real-time QR code scanning (camera support) or manual JSON paste.
+- Manual attendance marking fallback.
+- Organizer analytics: registrations, payments, check-ins.
+
+### Other Highlights
+- Modern space/nebula-themed UI with Lottie animations.
+- Built-in searchable FAQ & Help section.
+- Profile management with roll number and contact details.
+
+## Technologies Used
+
+- **Backend:**
+    - Node.js
+    - Express.js
+    - `better-sqlite3` for the database
+    - `jsonwebtoken` for authentication (JWT)
+    - `bcryptjs` for password hashing
+    - `multer` for file uploads
+    - `qrcode` for generating QR codes
+    - `nodemailer` for email notifications (placeholder)
+    - `passport` for Google OAuth (placeholder)
+    - `razorpay` and `stripe` for payments (placeholders)
+
+- **Frontend:**
+  - HTML5, CSS3, Vanilla JavaScript
+  - Lottie animations
+
+- **Planned Integrations**
+  - Stripe & Razorpay
+  - Email/SMS notifications
+  - Google OAuth
 
 ## Folder Structure
 
@@ -77,24 +126,7 @@ https://github.com/user-attachments/assets/68cb29be-3b74-4084-beb2-19d8928dd3ae
     - **`uploads/`**: Stores user-uploaded files, such as payment proofs and UPI QR codes.
 - **`node_modules/`**: Contains all the installed Node.js modules.
 
-## Technologies Used
 
-- **Backend:**
-    - Node.js
-    - Express.js
-    - `better-sqlite3` for the database
-    - `jsonwebtoken` for authentication (JWT)
-    - `bcryptjs` for password hashing
-    - `multer` for file uploads
-    - `qrcode` for generating QR codes
-    - `nodemailer` for email notifications (placeholder)
-    - `passport` for Google OAuth (placeholder)
-    - `razorpay` and `stripe` for payments (placeholders)
-- **Frontend:**
-    - HTML5
-    - CSS3
-    - JavaScript (with `fetch` for API calls)
-    - Lottie for animations
 
 ## Setup and Installation
 
@@ -130,8 +162,6 @@ https://github.com/user-attachments/assets/68cb29be-3b74-4084-beb2-19d8928dd3ae
         npm start
         ```
 
-The server will be running on `http://localhost:3000`.
-
 ## How to Use
 
 - **Admin User:** An admin user is seeded automatically on the first run. You can log in with the credentials you provided in the `.env` file.
@@ -160,3 +190,5 @@ git remote add origin https://github.com/your-username/campusvibe.git
 - Add more detailed analytics and reporting.
 - Implement real-time notifications using WebSockets.
 - Add a dedicated admin panel for user management.
+
+**CampusVibe – Making campus events effortless and memorable. 🚀**
