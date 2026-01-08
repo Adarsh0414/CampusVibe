@@ -5,11 +5,11 @@
 CampusVibe is a full-stack web application built for efficient campus event management. It enables students to discover and register for events, organizers (committees) to create and manage events with ticketing and attendance tracking, and administrators to oversee the platform.
 
 ## 🎥 CampusVibe Demo
-<video width="900" height="500" controls>
-<source src= "https://github.com/user-attachments/assets/68cb29be-3b74-4084-beb2-19d8928dd3ae" type="video/mp4">
+
+https://github.com/user-attachments/assets/68cb29be-3b74-4084-beb2-19d8928dd3ae
 
 
-</video>
+
 ## Features
 
 - **User Roles:** The platform supports three user roles:
