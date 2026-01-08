@@ -192,5 +192,5 @@ git remote add origin https://github.com/your-username/campusvibe.git
 - Add a dedicated admin panel for user management.
 
 <div align="center">
-**CampusVibe – Making campus events effortless and memorable. 🚀**
+  **CampusVibe – Making campus events effortless and memorable. 🚀**
 </div>
