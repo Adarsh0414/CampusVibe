@@ -1,8 +1,10 @@
 # CampusVibe
 
-**Tagline:** "Ideal Management, Ideal Moments"
+**Tagline:** *Ideal Management, Ideal Moments*
 
-CampusVibe is a comprehensive platform for managing campus events. It provides a seamless experience for students, committee members, and administrators to organize, attend, and manage events.
+CampusVibe is a full-stack web application built for efficient campus event management. It enables students to discover and register for events, organizers (committees) to create and manage events with ticketing and attendance tracking, and administrators to oversee the platform.
+
+## 🎥 CampusVibe Demo
 
 ## Features
 
