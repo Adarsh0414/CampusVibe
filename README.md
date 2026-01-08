@@ -6,7 +6,8 @@ CampusVibe is a full-stack web application built for efficient campus event mana
 
 ## 🎥 CampusVibe Demo
 
-https://github.com/user-attachments/assets/a2922ade-f0a2-42f6-95de-4b704e1e29d6
+
+https://github.com/user-attachments/assets/68cb29be-3b74-4084-beb2-19d8928dd3ae
 
 
 ## Features
