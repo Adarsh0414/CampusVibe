@@ -38,13 +38,10 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_DEV_SECRET'; // Set in .env for production
 const QR_SIGNING_SECRET = process.env.QR_SIGNING_SECRET || JWT_SECRET;
 
-// Ensure data directory exists
-const dataDir = path.join(process.cwd(), '.data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-// Initialize DB
-const dbPath = path.join(dataDir, 'campusvibe.db');
+// VERCEL-SAFE: Use /tmp (writable) - data resets on cold starts
+const dbPath = '/tmp/campusvibe.db';
+
+// Create DB tables on EVERY cold start (idempotent)
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
@@ -172,29 +169,33 @@ addColumn('tickets', 'participants_json TEXT');
 addColumn('tickets', 'amount_due_cents INTEGER');
 addColumn('events', 'allowed_tiers TEXT');
 
-// Uploads (GPay QR and payment proofs)
-const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+// ✅ VERCEL-SAFE UPLOADS: Use /tmp + serve as static
+const uploadDir = '/tmp/uploads';
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 ['upi_qr', 'payment_proofs'].forEach(sub => {
-  const dest = path.join(uploadDir, sub);
+  const dest = `${uploadDir}/${sub}`;
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });
   }
 });
-// ✅ VERCEL SAFE - Pre-create ALL directories at startup
 
+// Serve /tmp/uploads as static files
+app.use('/uploads', express.static(uploadDir));
+
+// ✅ FIXED Multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const sub = file.fieldname === 'upi_qr' ? 'upi_qr' : 'payment_proofs';
-    cb(null, path.join(uploadDir, sub));  // ✅ Direct path, no mkdir
+    cb(null, `${uploadDir}/${sub}`);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '');
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
   }
 });
+
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Seed admin if not exists
