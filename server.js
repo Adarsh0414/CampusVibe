@@ -169,26 +169,15 @@ addColumn('tickets', 'participants_json TEXT');
 addColumn('tickets', 'amount_due_cents INTEGER');
 addColumn('events', 'allowed_tiers TEXT');
 
-// ✅ VERCEL-SAFE UPLOADS: Use /tmp + serve as static
+// ✅ PROPER DISK UPLOADS (Vercel-safe)
 const uploadDir = '/tmp/uploads';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-['upi_qr', 'payment_proofs'].forEach(sub => {
-  const dest = `${uploadDir}/${sub}`;
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
-  }
-});
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-// Serve /tmp/uploads as static files
-app.use('/uploads', express.static(uploadDir));
-
-// ✅ FIXED Multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const sub = file.fieldname === 'upi_qr' ? 'upi_qr' : 'payment_proofs';
-    cb(null, `${uploadDir}/${sub}`);
+    const dir = file.fieldname === 'upi_qr' ? `${uploadDir}/upi_qr` : `${uploadDir}/payment_proofs`;
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '');
@@ -196,7 +185,18 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ 
+  storage, 
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only images allowed'), false);
+  }
+});
+
+// ✅ Serve uploaded files
+app.use('/uploads', express.static(uploadDir));
+
 
 // Seed admin if not exists
 (function seedAdmin() {
@@ -410,7 +410,7 @@ app.post('/api/events', authRequired, roleRequired('committee', 'admin'), (req, 
   res.json({ event });
 });
 
-app.put('/api/events/:uuid', authRequired, roleRequired('committee', 'admin'), (req, res) => {
+app.put('/api/events/:uuid/payment-setup', authRequired, roleRequired('committee', 'admin'), (req, res) => {
   const e = db.prepare('SELECT * FROM events WHERE uuid = ?').get(req.params.uuid);
   if (!e) return res.status(404).json({ error: 'Event not found' });
   const { title, description, category, start_time, end_time, location, capacity, price_cents, currency, status, visibility,
