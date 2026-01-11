@@ -39,10 +39,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_DEV_SECRET'; // Set in .
 const QR_SIGNING_SECRET = process.env.QR_SIGNING_SECRET || JWT_SECRET;
 
 // Ensure data directory exists
-fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-
+const dataDir = path.join(process.cwd(), '.data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 // Initialize DB
-const db = new Database(path.join(__dirname, 'data', 'campusvibe.db'));
+const dbPath = path.join(dataDir, 'campusvibe.db');
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
@@ -170,7 +173,10 @@ addColumn('tickets', 'amount_due_cents INTEGER');
 addColumn('events', 'allowed_tiers TEXT');
 
 // Uploads (GPay QR and payment proofs)
-const uploadDir = path.join(__dirname, 'public', 'uploads');
+const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 fs.mkdirSync(uploadDir, { recursive: true });
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
