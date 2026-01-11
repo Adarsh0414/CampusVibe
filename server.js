@@ -177,13 +177,18 @@ const uploadDir = path.join(process.cwd(), 'public', 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
-fs.mkdirSync(uploadDir, { recursive: true });
+['upi_qr', 'payment_proofs'].forEach(sub => {
+  const dest = path.join(uploadDir, sub);
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true });
+  }
+});
+// ✅ VERCEL SAFE - Pre-create ALL directories at startup
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const sub = file.fieldname === 'upi_qr' ? 'upi_qr' : 'payment_proofs';
-    const dest = path.join(uploadDir, sub);
-    fs.mkdirSync(dest, { recursive: true });
-    cb(null, dest);
+    cb(null, path.join(uploadDir, sub));  // ✅ Direct path, no mkdir
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '');
