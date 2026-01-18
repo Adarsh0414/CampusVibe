@@ -30,6 +30,11 @@
     const params = new URLSearchParams(location.search);
     const uuid = params.get('e');
     const forcedType = (params.get('type') || '').toLowerCase();
+    if (!uuid) {
+  document.getElementById('root').innerHTML =
+    '<div class="alert warn">Invalid event link</div>';
+  throw new Error('Missing event UUID');
+}
     async function load() {
       const res = await fetch(`/api/events/${uuid}`);
       if (!res.ok) { document.getElementById('root').innerHTML = '<div class="alert warn">Event not found</div>'; return; }

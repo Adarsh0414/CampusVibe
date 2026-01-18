@@ -95,7 +95,7 @@
           <div class="ticket-card skeleton" style="height:170px;"></div>
         `;
         
-        const res = await fetch('/api/tickets', { credentials: 'include' });
+        const res = await fetch('/api/my-tickets', { credentials: 'include' });
         if (res.status === 401) {
           location.href = '/login.html';
           return;

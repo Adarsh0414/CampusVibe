@@ -185,13 +185,321 @@ function authRequired(req, res, next) {
   }
 }
 
+// 🔧 FIX: Get single public event by UUID (prevents HTML fallback)
+// ✅ FIX: List public events (prevents /api/events 404)
 app.get('/api/events', (req, res) => {
-  const { q, category } = req.query;
-  let sql = 'SELECT id, uuid, title, description, start_time, location, capacity, price_cents, status FROM events WHERE visibility = "public" ORDER BY start_time ASC LIMIT 50';
-  db.all(sql, (err, rows) => {
+  db.all(
+    `
+    SELECT 
+      id, uuid, title, description, start_time, end_time,
+      location, capacity, price_cents, status
+    FROM events
+    WHERE visibility = 'public'
+    ORDER BY start_time ASC
+    LIMIT 50
+    `,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ events: rows });
+    }
+  );
+});
+app.get('/api/events/:uuid', (req, res) => {
+  const { uuid } = req.params;
+
+  db.get(
+    `
+    SELECT e.*,
+      (SELECT COUNT(*) FROM tickets t WHERE t.event_id = e.id) AS sold
+    FROM events e
+    WHERE e.uuid = ? AND e.visibility = 'public'
+    `,
+    [uuid],
+    (err, event) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!event) return res.status(404).json({ error: 'Event not found' });
+
+      event.remaining = event.capacity
+        ? Math.max(0, event.capacity - (event.sold || 0))
+        : null;
+
+      res.json({ event });
+    }
+  );
+});
+
+// ✅ CREATE EVENT (FIXES POST /api/events JSON ERROR)
+app.post('/api/events', authRequired, (req, res) => {
+  const {
+    title,
+    description,
+    category,
+    start_time,
+    end_time,
+    location,
+    capacity
+  } = req.body;
+
+  if (!title || !start_time) {
+    return res.status(400).json({ error: 'Title and start time required' });
+  }
+
+  const eventUuid = uuidv4();
+
+  db.run(
+    `
+    INSERT INTO events (
+      uuid,
+      title,
+      description,
+      category,
+      start_time,
+      end_time,
+      location,
+      capacity,
+      created_by,
+      status,
+      visibility,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      eventUuid,
+      title,
+      description || '',
+      category || '',
+      start_time,
+      end_time || null,
+      location || '',
+      capacity || null,
+      req.user.id,
+      'published',
+      'public',
+      dayjs().toISOString()
+    ],
+    function (err) {
+      if (err) {
+        console.error('Event creation failed:', err);
+        return res.status(500).json({ error: 'Failed to create event' });
+      }
+
+      res.json({
+        ok: true,
+        event: {
+          uuid: eventUuid
+        }
+      });
+    }
+  );
+});
+
+// 🔒 EVENT REGISTRATION (FINAL GUARANTEED ROUTE)
+app.post('/api/events/:uuid/register', authRequired, (req, res) => {
+  const { uuid } = req.params;
+  const { participants } = req.body;
+
+  if (!participants || !Array.isArray(participants) || participants.length === 0) {
+    return res.status(400).json({ error: 'Participants required' });
+  }
+
+  db.get('SELECT id FROM events WHERE uuid = ?', [uuid], (err, event) => {
     if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    const ticketUuid = crypto.randomUUID();
+
+    db.run(
+      `INSERT INTO tickets (uuid, user_id, event_id, participants_json, created_at, payment_status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        ticketUuid,
+        req.user.id,
+        event.id,
+        JSON.stringify(participants),
+        dayjs().toISOString(),
+        'paid'
+      ],
+      function (err) {
+        if (err) {
+          console.error(err);
+          return res.status(500).json({ error: 'Registration failed' });
+        }
+
+        res.json({
+          ok: true,
+          ticket: { uuid: ticketUuid }
+        });
+      }
+    );
+  });
+});
+
+// ===============================
+// DELETE EVENT (Organizer / Admin)
+// ===============================
+app.delete('/api/events/:uuid', authRequired, (req, res) => {
+  const { uuid } = req.params;
+
+  db.get(
+    `
+    SELECT e.id, e.created_by
+    FROM events e
+    WHERE e.uuid = ?
+    `,
+    [uuid],
+    (err, event) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      // Only creator or admin can delete
+      if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'Not authorized to delete this event' });
+      }
+
+      // Delete tickets first (FK safety)
+      db.run(
+        `DELETE FROM tickets WHERE event_id = ?`,
+        [event.id],
+        (err) => {
+          if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Failed to delete tickets' });
+          }
+
+          // Delete event
+          db.run(
+            `DELETE FROM events WHERE id = ?`,
+            [event.id],
+            function (err) {
+              if (err) {
+                console.error(err);
+                return res.status(500).json({ error: 'Failed to delete event' });
+              }
+
+              res.json({
+                ok: true,
+                message: 'Event deleted successfully'
+              });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// ===============================
+// Organizer: My Events
+// ===============================
+app.get('/api/organizer/my-events', authRequired, (req, res) => {
+  const activeOnly = req.query.active_only === '1';
+
+  let query = `
+    SELECT 
+      e.id,
+      e.uuid,
+      e.title,
+      e.start_time,
+      e.end_time,
+      e.location,
+      e.status,
+      e.visibility
+    FROM events e
+    JOIN users u ON e.created_by = u.id
+    WHERE u.email = ?
+  `;
+
+  const params = [req.user.email];
+
+  if (activeOnly) {
+    query += ` AND (e.end_time IS NULL OR datetime(e.end_time) >= datetime('now'))`;
+  }
+
+  query += ` ORDER BY e.start_time DESC`;
+
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Failed to load events' });
+    }
     res.json({ events: rows });
   });
+});
+
+// ===============================
+// GET TICKET BY UUID (PRINT VIEW)
+// ===============================
+app.get('/api/tickets/:uuid', authRequired, (req, res) => {
+  const { uuid } = req.params;
+
+  db.get(
+    `
+    SELECT 
+      t.uuid,
+      t.created_at,
+      t.participants_json,
+      e.title AS event_title,
+      e.start_time,
+      e.end_time,
+      e.location
+    FROM tickets t
+    JOIN events e ON t.event_id = e.id
+    WHERE t.uuid = ? AND t.user_id = ?
+    `,
+    [uuid, req.user.id],
+    (err, ticket) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Failed to load ticket' });
+      }
+
+      if (!ticket) {
+        return res.status(404).json({ error: 'Ticket not found' });
+      }
+
+      res.json({
+        ticket
+      });
+    }
+  );
+});
+
+// ===============================
+// MY TICKETS (Logged-in user)
+// ===============================
+app.get('/api/my-tickets', authRequired, (req, res) => {
+  db.all(
+    `
+    SELECT
+      t.uuid,
+      t.created_at,
+      t.payment_status,
+      t.checked_in,
+      e.uuid AS event_uuid,
+      e.title AS event_title,
+      e.start_time,
+      e.end_time,
+      e.location
+    FROM tickets t
+    JOIN events e ON e.id = t.event_id
+    WHERE t.user_id = ?
+    ORDER BY e.start_time DESC
+    `,
+    [req.user.id],
+    (err, rows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Failed to load tickets' });
+      }
+      res.json({ tickets: rows });
+    }
+  );
 });
 
 // ✅ STATIC FILES LAST (after ALL API)

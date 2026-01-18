@@ -86,8 +86,8 @@
   <script>
 document.addEventListener('DOMContentLoaded', async function() {
   var params = new URLSearchParams(location.search);
-  var t = params.get('t');
-  
+  var t = params.get('ticket') || params.get('t');
+
   if (!t) {
     document.getElementById('root').innerHTML = '<div class="alert warn" style="max-width:500px;margin:0 auto;">Invalid ticket link</div>';
     return;
@@ -115,7 +115,7 @@ function loadTicket(t) {
     })
     .then(function(data) {
       if (data) {
-        renderTicket(data.ticket, data.tagline);
+        renderTicket(data.ticket);
       }
     })
     .catch(function(error) {
@@ -123,80 +123,57 @@ function loadTicket(t) {
     });
 }
 
-function renderTicket(ticket, tagline) {
-  var participants = [];
-  try { 
-    if (ticket.participants_json) {
-      participants = JSON.parse(ticket.participants_json);
-    }
-  } catch (e) { participants = []; }
-  
-  var groupType = (ticket.group_type || 'single').replace('_', ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
-  var paidAmount = (ticket.price_paid_cents || 0) / 100;
-  var dueAmount = (ticket.amount_due_cents || 0) / 100;
-  
-  var statusBadge = getStatusBadge(ticket.payment_status);
-  
-  var eventDate = ticket.end_time 
-    ? new Date(ticket.start_time).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + ' – ' + new Date(ticket.end_time).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + ' IST'
-    : new Date(ticket.start_time).toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + ' IST';
-  
-  var html = [
-    '<div class="ticket">',
-      '<div class="ticket-header">',
-        '<h2>' + escapeHtml(ticket.event_title) + '</h2>',
-        '<div style="font-size:15px;opacity:0.9;">' + eventDate + '</div>',
-      '</div>',
-      '<div class="ticket-body">',
-        '<div class="meta">',
-          '<p><strong>Attendee:</strong> ' + escapeHtml(ticket.user_name || 'N/A') + ' (' + escapeHtml(ticket.user_email) + ')</p>',
-          '<p><strong>Location:</strong> ' + escapeHtml(ticket.location || 'TBA') + '</p>',
-          '<p><strong>Ticket ID:</strong> <span style="font-family:monospace;">' + ticket.uuid + '</span></p>',
-          '<p><strong>Type:</strong> ' + groupType + '</p>'
-  ];
-  
-  if (participants.length > 0) {
-    html.push('<div style="margin:16px 0;">');
-    html.push('<strong>Participants (' + participants.length + '):</strong>');
-    html.push('<ul style="margin:8px 0 0 20px;font-size:14px;">');
-    for (var i = 0; i < participants.length; i++) {
-      var p = participants[i];
-      html.push('<li>' + escapeHtml(p.name || 'N/A') + ' (' + escapeHtml(p.roll_number || '-') + ')</li>');
-    }
-    html.push('</ul></div>');
+function renderTicket(ticket) {
+  let participants = [];
+  try {
+    participants = JSON.parse(ticket.participants_json || '[]');
+  } catch {}
+
+  const eventDate = ticket.end_time
+    ? new Date(ticket.start_time).toLocaleString('en-IN') +
+      ' – ' +
+      new Date(ticket.end_time).toLocaleString('en-IN')
+    : new Date(ticket.start_time).toLocaleString('en-IN');
+
+  let html = `
+    <div class="ticket">
+      <div class="ticket-header">
+        <h2>${escapeHtml(ticket.event_title)}</h2>
+        <div style="font-size:15px;opacity:.9">${eventDate} IST</div>
+      </div>
+
+      <div class="ticket-body">
+        <div class="meta">
+          <p><strong>Location:</strong> ${escapeHtml(ticket.location || 'TBA')}</p>
+          <p><strong>Ticket ID:</strong>
+            <span style="font-family:monospace">${ticket.uuid}</span>
+          </p>
+  `;
+
+  if (participants.length) {
+    html += `<strong>Participants (${participants.length}):</strong><ul>`;
+    participants.forEach(p => {
+      html += `<li>${escapeHtml(p.name || 'N/A')}</li>`;
+    });
+    html += `</ul>`;
   }
-  
-  html.push('<p><strong>Status:</strong> <span class="status-badge ' + statusBadge.className + '">' + statusBadge.text + '</span></p>');
-  
-  if (ticket.payment_status === 'paid') {
-    html.push('<p><strong>Amount:</strong> <span style="font-size:18px;color:#10b981;font-weight:bold;">₹' + paidAmount + '</span></p>');
-  } else {
-    html.push('<p><strong>Due:</strong> <span style="font-size:18px;color:#f59e0b;font-weight:bold;">₹' + dueAmount + '</span></p>');
-  }
-  
-  html.push('<p class="ticket-tagline" style="margin-top:24px;font-style:italic;color:#9ca3af;font-size:14px;">"' + escapeHtml(tagline || 'Ideal Management, Ideal Moments') + '"</p>');
-  html.push('</div>');
-  
-  html.push('<div class="ticket-qr">');
-  if (ticket.qr_code) {
-    html.push('<div style="padding:20px;background:rgba(255,255,255,0.05);border-radius:16px;">');
-    html.push('<img src="' + ticket.qr_code + '" alt="QR Code" style="width:220px;height:220px;border-radius:12px;" />');
-    html.push('<p style="margin:12px 0 0 0;color:#9ca3af;font-size:13px;">Scan at entry</p>');
-    html.push('</div>');
-  } else {
-    html.push('<div style="padding:40px;text-align:center;color:#9ca3af;">');
-    html.push('<div style="width:80px;height:80px;border:2px dashed currentColor;border-radius:12px;margin:0 auto 12px;"></div>');
-    html.push('<p>QR Code will appear after payment verification</p>');
-    html.push('</div>');
-  }
-  html.push('</div>');
-  
-  html.push('</div>');
-  html.push('<div class="ticket-footer print-only">');
-  html.push('<p style="margin:0;font-size:12px;color:#9ca3af;">Generated on ' + new Date().toLocaleString('en-IN') + '</p>');
-  html.push('</div></div>');
-  
-  document.getElementById('root').innerHTML = html.join('');
+
+  html += `
+        </div>
+        <div class="ticket-qr">
+          <div style="padding:40px;text-align:center;color:#9ca3af">
+            QR will appear after verification
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-footer">
+        Generated on ${new Date().toLocaleString('en-IN')}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('root').innerHTML = html;
   document.getElementById('loading').style.display = 'none';
   document.getElementById('ticket-content').style.display = 'block';
 }
