@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Organizer Dashboard - CampusVibe</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; color: white; font-weight: 500; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.5); border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 8px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    button:focus, input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .input.invalid { border-color: #ef4444 !important; box-shadow: 0 0 0 2px #ef444440; }
+    .input.valid { border-color: #10b981 !important; box-shadow: 0 0 0 2px #10b98140; }
+    @media (max-width: 768px) { .row { flex-direction: column !important; gap: 12px; } }
+    #toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; z-index: 10000; transform: translateX(400px); transition: all 0.3s; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    #toast.show { transform: translateX(0); }
+    #toast.success { background: #10b981; }
+    #toast.error { background: #ef4444; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .flash-highlight { animation: flashHighlight 1.2s ease; }
+    @keyframes flashHighlight {
+      0%, 100% { box-shadow: none; }
+      20% { box-shadow: 0 0 0 3px rgba(108,140,255,0.6); border-color: var(--primary); }
+    }
+    .stat-card { flex: 1; min-width: 140px; }
+    .stat-card .num { font-size: 26px; font-weight: 800; }
+    .stat-card .lbl { color: var(--muted); font-size: .82rem; }
+    .event-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--border); padding: 14px 0; flex-wrap: wrap; }
+    .event-row:last-child { border-bottom: none; }
+    .event-row-info { flex: 1; min-width: 200px; }
+    .event-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .gate-card { max-width: 460px; margin: 60px auto; text-align: center; }
+  </style>
+  <script src="/assets/js/lottie.min.js"></script>
+  <script src="/assets/i18n/i18n-data.js"></script>
+  <script src="/assets/js/i18n.js"></script>
+</head>
+<body>
+  <header class="cv-header">
+    <div class="container header-inner">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit">
+        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <div class="brand-text">
+          <h1>CampusVibe</h1>
+          <p class="tagline">Organizer Console</p>
+        </div>
+      </a>
+      <nav class="nav">
+        <a href="/" class="nav-link"><span data-i18n="nav_home">Home</span></a>
+        <a href="/attendance.html" class="nav-link">Attendance</a>
+        <a href="/profile.html" class="nav-link"><span data-i18n="nav_profile">Profile</span></a>
+        <span data-i18n-mount></span>
+        <a href="#" id="logoutBtn" class="btn outline"><span data-i18n="nav_logout">Logout</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container" style="padding:24px 0;" id="mainArea">
+    <!-- Content is injected after the auth/role gate check below -->
+  </main>
+
+  <div id="toast"></div>
+
+  <script>
+    const els = {};
+    const CATEGORIES = ['Technical', 'Cultural', 'Sports', 'Workshops'];
+    let currentUser = null;
+    let lastCreatedUuid = null;
+    let editingUuid = null;
+    let myEventsCache = [];
+
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `show ${type}`;
+      setTimeout(() => toast.classList.remove('show'), 4000);
+    }
+
+    function withLoading(btn, fn) {
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Loading...';
+      return fn().finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      });
+    }
+
+    // ===============================
+    // GATE: check auth + organizer status BEFORE rendering the dashboard.
+    // This keeps the organizer console cleanly separated from the student
+    // experience — a plain student (or a pending/rejected applicant) never
+    // sees the console at all, just a clear status message.
+    // ===============================
+    (async () => {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (!res.ok) { location.href = '/login.html'; return; }
+      const { user } = await res.json();
+      currentUser = user;
+
+      if (user.role === 'committee' || user.role === 'admin') {
+        renderDashboard();
+        return;
+      }
+
+      // Student account — show a status-aware gate instead of the console.
+      const main = document.getElementById('mainArea');
+      if (user.organizer_status === 'pending') {
+        main.innerHTML = `
+          <div class="card gate-card">
+            <div style="font-size:40px;">⏳</div>
+            <h3>Application pending</h3>
+            <p class="muted">Your organizer application is awaiting admin approval. You'll be able to create events here once it's approved.</p>
+            <a class="btn outline" href="/">Back to Home</a>
+          </div>`;
+      } else if (user.organizer_status === 'rejected') {
+        main.innerHTML = `
+          <div class="card gate-card">
+            <div style="font-size:40px;">🚫</div>
+            <h3>Application not approved</h3>
+            <p class="muted">Your organizer application wasn't approved. If you think this is a mistake, contact the admin team.</p>
+            <a class="btn outline" href="/">Back to Home</a>
+          </div>`;
+      } else {
+        main.innerHTML = `
+          <div class="card gate-card">
+            <div style="font-size:40px;">🔒</div>
+            <h3>Organizer access required</h3>
+            <p class="muted">This console is for approved event organizers only.</p>
+            <a class="btn primary" href="/organizer-apply.html">Apply to become an organizer</a>
+          </div>`;
+      }
+    })();
+
+    document.getElementById('logoutBtn')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
+      location.href = '/';
+    });
+
+    function renderDashboard() {
+      const main = document.getElementById('mainArea');
+      const isAdmin = currentUser.role === 'admin';
+
+      main.innerHTML = `
+        <div id="lottie-dash" style="height:120px; opacity:.5; margin-bottom:8px;"></div>
+        <div class="row" id="quick-stats" style="margin-bottom:20px;"></div>
+
+        <div class="section-tabs" id="tabs">
+          <button class="section-tab active" data-tab="create">➕ Create Event</button>
+          <button class="section-tab" data-tab="events">📋 My Events</button>
+          <button class="section-tab" data-tab="payment-setup">💳 Payment Setup</button>
+          <button class="section-tab" data-tab="proofs">🧾 Payment Proofs</button>
+          <button class="section-tab" data-tab="analytics">📊 Analytics</button>
+          ${isAdmin ? '<button class="section-tab" data-tab="admin">🛡️ Organizer Applications<span class="pending-pill" id="pendingPill" style="display:none;"></span></button>' : ''}
+        </div>
+
+        <!-- ============ CREATE EVENT ============ -->
+        <div class="tab-panel active" id="tab-create">
+          <div class="card">
+            <h3 id="createFormTitle">Create a New Event</h3>
+            <div class="step-guide">
+              <div class="step-item">
+                <div class="step-num">1</div>
+                <div><h5>Fill in the event details and click Create</h5><p>You'll instantly get a unique Event ID (e.g. <b>${todayPrefix()}482913</b>) — save it, you'll need it next.</p></div>
+              </div>
+              <div class="step-item">
+                <div class="step-num">2</div>
+                <div><h5>Go to the "Payment Setup" tab</h5><p>Paste your Event ID there and add your bank/UPI details so students can pay you directly.</p></div>
+              </div>
+              <div class="step-item">
+                <div class="step-num">3</div>
+                <div><h5>Share & manage</h5><p>Share the event link from "My Events". Approve payment proofs (UTR numbers) under "Payment Proofs" as students register.</p></div>
+              </div>
+            </div>
+
+            <div id="createdUuidBox"></div>
+
+            <div class="form">
+              <div class="flex-col"><label class="label">Event Title *</label><input class="input" id="title" placeholder="e.g. TechFest 2026 - Hackathon" /></div>
+              <div class="flex-col"><label class="label">Description</label><textarea class="input" id="desc" placeholder="What's this event about?"></textarea></div>
+              <div class="row">
+                <div class="flex-col">
+                  <label class="label">Category *</label>
+                  <select class="input" id="category">
+                    <option value="">Select a category</option>
+                    ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="flex-col"><label class="label">Location *</label><input class="input" id="location" placeholder="e.g. Main Auditorium" /></div>
+              </div>
+              <div class="row">
+                <div class="flex-col"><label class="label">Start time *</label><input class="input" id="start" type="datetime-local" /></div>
+                <div class="flex-col"><label class="label">Finish time *</label><input class="input" id="end" type="datetime-local" /></div>
+              </div>
+              <p class="muted" style="margin:-8px 0 0;font-size:.85rem;">⏰ Once the finish time passes, this event is automatically removed from the public homepage.</p>
+              <div class="row">
+                <div class="flex-col"><label class="label">Capacity</label><input class="input" id="capacity" type="number" placeholder="Optional — max registrations" /></div>
+                <div class="flex-col"><label class="label">Visibility</label>
+                  <select class="input" id="visibility">
+                    <option value="public">Public (shown on homepage)</option>
+                    <option value="private">Private (link-only)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="card" style="margin:8px 0; background: rgba(255,255,255,0.03);">
+                <h4 style="margin:6px 0;">Ticket Tiers & Pricing *</h4>
+                <p class="muted" style="margin-top:0;">Select which registration types are offered, and the amount payable for each. Students will see exactly these options when registering.</p>
+                <div class="row">
+                  <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="allow_single" checked /> Single</label>
+                  <input class="input" id="price_single" type="number" placeholder="Price for Single (₹)" />
+                </div>
+                <div class="row">
+                  <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="allow_duo" /> Duo</label>
+                  <input class="input" id="price_duo" type="number" placeholder="Price for Duo (₹)" />
+                </div>
+                <div class="row">
+                  <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="allow_trio" /> Trio</label>
+                  <input class="input" id="price_trio" type="number" placeholder="Price for Trio (₹)" />
+                </div>
+              </div>
+
+              <div class="card" style="margin:8px 0; background: rgba(255,255,255,0.03);">
+                <div class="flex" style="align-items:center; justify-content:space-between;">
+                  <div>
+                    <h4 style="margin:6px 0;">Discount Codes</h4>
+                    <p class="muted" style="margin-top:0;">Optionally let students apply a code for a reduced price at registration.</p>
+                  </div>
+                  <label style="display:flex;align-items:center;gap:8px;white-space:nowrap;">
+                    <input type="checkbox" id="discounts_enabled" /> Enable
+                  </label>
+                </div>
+                <div id="discountCodesWrap" style="display:none;">
+                  <div id="discountCodesList"></div>
+                  <button type="button" class="btn outline" id="addDiscountCode" style="margin-top:8px;">+ Add discount code</button>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="flex-col"><label class="label">Publish status</label>
+                  <select class="input" id="status">
+                    <option value="published">Published (visible now)</option>
+                    <option value="draft">Draft (hidden until you publish)</option>
+                  </select>
+                </div>
+                <div></div>
+              </div>
+              <div class="flex" style="gap:10px;">
+                <button class="btn primary" id="create" style="justify-self:start;">Create Event</button>
+                <button class="btn outline" id="cancelEdit" style="display:none;">Cancel Edit</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ MY EVENTS ============ -->
+        <div class="tab-panel" id="tab-events">
+          <div class="card">
+            <h3>Your Events</h3>
+            <p class="muted">Events automatically disappear from this list and the homepage once their finish time has passed.</p>
+            <div id="events"></div>
+          </div>
+        </div>
+
+        <!-- ============ PAYMENT SETUP ============ -->
+        <div class="tab-panel" id="tab-payment-setup">
+          <div class="card">
+            <h3>Payment Setup (Bank / UPI)</h3>
+            <div class="step-guide">
+              <div class="step-item">
+                <div class="step-num">1</div>
+                <div><h5>Create your event first</h5><p>Every event gets a unique Event ID the moment you create it (see "Create Event" tab).</p></div>
+              </div>
+              <div class="step-item">
+                <div class="step-num">2</div>
+                <div><h5>Paste that Event ID below</h5><p>This links your bank/UPI details to that specific event.</p></div>
+              </div>
+              <div class="step-item">
+                <div class="step-num">3</div>
+                <div><h5>Save — you're done</h5><p>Students registering for this event will see these payment details and submit their UTR number for you to verify.</p></div>
+              </div>
+            </div>
+            <div class="form">
+              <div class="flex-col"><label class="label">Event ID *</label><input class="input" id="e_uuid" placeholder="e.g. ${todayPrefix()}482913" /></div>
+              <div class="row">
+                <input class="input" id="acc_name" placeholder="Account Holder Name" />
+                <input class="input" id="acc_no" placeholder="Account Number" />
+              </div>
+              <div class="row">
+                <input class="input" id="ifsc" placeholder="IFSC Code" />
+                <input class="input" id="upi" placeholder="UPI ID (e.g. name@bank)" />
+              </div>
+              <div class="flex-col"><label class="label">UPI QR code image (optional)</label><input class="input" id="upi_qr" type="file" accept="image/*" /></div>
+              <textarea class="input" id="notes" placeholder="Any extra payment instructions for students"></textarea>
+              <button class="btn primary" id="savePay" style="justify-self:start;">Save Payment Setup</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ PAYMENT PROOFS ============ -->
+        <div class="tab-panel" id="tab-proofs">
+          <div class="card">
+            <h3>Payment Proofs</h3>
+            <p class="muted">Enter an Event ID to see students who've submitted a Transaction ID / UTR number awaiting your approval.</p>
+            <div class="form">
+              <div class="row">
+                <input class="input" id="e_uuid_list" placeholder="Event ID" />
+                <button class="btn outline" id="listProofs" style="justify-self:start;">List Pending Proofs</button>
+              </div>
+            </div>
+            <div id="proofs" style="margin-top:12px;"></div>
+          </div>
+        </div>
+
+        <!-- ============ ANALYTICS ============ -->
+        <div class="tab-panel" id="tab-analytics">
+          <div class="card">
+            <h3>Analytics</h3>
+            <p class="muted">Click "View Analytics" on an event under "My Events" to load its stats here.</p>
+            <div id="analytics"></div>
+          </div>
+        </div>
+
+        ${isAdmin ? `
+        <!-- ============ ADMIN: ORGANIZER APPLICATIONS ============ -->
+        <div class="tab-panel" id="tab-admin">
+          <div class="card">
+            <h3>Pending Organizer Applications</h3>
+            <p class="muted">Approve trusted staff/club coordinators to grant them organizer access. Students remain regular accounts until approved here.</p>
+            <div id="applications"></div>
+          </div>
+        </div>` : ''}
+      `;
+
+      cacheEls();
+      wireTabs();
+      wireForms();
+      loadEvents();
+      if (isAdmin) loadApplications();
+
+      try {
+        if (window.lottie) {
+          window.lottie.loadAnimation({
+            container: document.getElementById('lottie-dash'),
+            renderer: 'svg', loop: true, autoplay: true,
+            path: '/assets/lottie/dashboard.json'
+          });
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    function todayPrefix() {
+      const d = new Date();
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${dd}${mm}${d.getFullYear()}`;
+    }
+
+    function cacheEls() {
+      ['title','desc','category','location','start','end','capacity','visibility','status',
+       'allow_single','allow_duo','allow_trio','price_single','price_duo','price_trio',
+       'create','events','analytics','e_uuid','e_uuid_list','savePay','listProofs','proofs',
+       'discounts_enabled','discountCodesWrap','discountCodesList','addDiscountCode'
+      ].forEach(id => els[id] = document.getElementById(id));
+    }
+
+    function wireTabs() {
+      document.getElementById('tabs').addEventListener('click', (e) => {
+        const tab = e.target.closest('.section-tab');
+        if (!tab) return;
+        switchTab(tab.dataset.tab);
+      });
+    }
+
+    // ✅ Direct, reliable tab switching — used by both the tab bar clicks and
+    // the "Set up Payment →" shortcut. Previously the shortcut worked by
+    // re-dispatching a synthetic click on the tab button; that's an extra,
+    // unnecessary layer of indirection, so we call this directly instead.
+    function switchTab(tabName) {
+      document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const tabBtn = document.querySelector(`.section-tab[data-tab="${tabName}"]`);
+      const panel = document.getElementById(`tab-${tabName}`);
+      if (tabBtn) tabBtn.classList.add('active');
+      if (panel) panel.classList.add('active');
+    }
+
+    function wireForms() {
+      els.create.addEventListener('click', createEvent);
+      els.savePay.addEventListener('click', savePaymentSetup);
+      els.listProofs.addEventListener('click', listProofs);
+      document.getElementById('cancelEdit').addEventListener('click', () => {
+        exitEditMode();
+        document.getElementById('createdUuidBox').innerHTML = '';
+      });
+      els.discounts_enabled.addEventListener('change', () => {
+        els.discountCodesWrap.style.display = els.discounts_enabled.checked ? 'block' : 'none';
+        if (els.discounts_enabled.checked && !els.discountCodesList.children.length) {
+          addDiscountCodeRow();
+        }
+      });
+      els.addDiscountCode.addEventListener('click', () => addDiscountCodeRow());
+    }
+
+    let discountRowSeq = 0;
+    function addDiscountCodeRow(data) {
+      const id = `dc${++discountRowSeq}`;
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.dataset.rowId = id;
+      row.style.alignItems = 'flex-end';
+      row.innerHTML = `
+        <div class="flex-col"><label class="label">Code</label><input class="input dc-code" placeholder="e.g. SAVE20" value="${data?.code ? escapeAttr(data.code) : ''}" /></div>
+        <div class="flex-col"><label class="label">Type</label>
+          <select class="input dc-type">
+            <option value="percentage" ${data && data.percentage != null ? 'selected' : ''}>% off</option>
+            <option value="amount" ${data && data.amount_cents != null ? 'selected' : ''}>₹ off</option>
+          </select>
+        </div>
+        <div class="flex-col"><label class="label">Value</label><input class="input dc-value" type="number" placeholder="e.g. 20" value="${data && data.percentage != null ? data.percentage : (data && data.amount_cents != null ? data.amount_cents / 100 : '')}" /></div>
+        <div class="flex-col"><label class="label">Max uses</label><input class="input dc-max" type="number" placeholder="Optional" value="${data && data.max_uses != null ? data.max_uses : ''}" /></div>
+        <button type="button" class="btn outline dc-remove" title="Remove">✕</button>
+      `;
+      row.querySelector('.dc-remove').addEventListener('click', () => row.remove());
+      els.discountCodesList.appendChild(row);
+    }
+
+    function escapeAttr(s) {
+      return String(s).replace(/"/g, '&quot;');
+    }
+
+    function collectDiscountCodes() {
+      return Array.from(els.discountCodesList.querySelectorAll('.row')).map(row => {
+        const code = row.querySelector('.dc-code').value.trim();
+        const type = row.querySelector('.dc-type').value;
+        const value = row.querySelector('.dc-value').value;
+        const maxUses = row.querySelector('.dc-max').value;
+        return {
+          code,
+          percentage: type === 'percentage' && value !== '' ? Number(value) : null,
+          amount_cents: type === 'amount' && value !== '' ? Math.round(Number(value) * 100) : null,
+          max_uses: maxUses !== '' ? Number(maxUses) : null
+        };
+      }).filter(c => c.code);
+    }
+
+    function resetDiscountCodesForm() {
+      els.discounts_enabled.checked = false;
+      els.discountCodesWrap.style.display = 'none';
+      els.discountCodesList.innerHTML = '';
+    }
+
+    function validateEventForm() {
+      const title = els.title.value.trim();
+      const start = els.start.value;
+      const end = els.end.value;
+      const category = els.category.value;
+      const location = els.location.value.trim();
+
+      [els.title, els.start, els.end, els.category, els.location].forEach(el => el.classList.remove('invalid'));
+
+      if (!title) { els.title.classList.add('invalid'); showToast('Title is required', 'error'); return false; }
+      if (!category) { els.category.classList.add('invalid'); showToast('Please choose a category', 'error'); return false; }
+      if (!location) { els.location.classList.add('invalid'); showToast('Location is required', 'error'); return false; }
+      if (!start) { els.start.classList.add('invalid'); showToast('Start time is required', 'error'); return false; }
+      if (!end) { els.end.classList.add('invalid'); showToast('Finish time is required', 'error'); return false; }
+      if (new Date(end) <= new Date(start)) { els.end.classList.add('invalid'); showToast('Finish time must be after start time', 'error'); return false; }
+      return true;
+    }
+
+    async function createEvent() {
+      if (!validateEventForm()) return;
+      const isEditing = !!editingUuid;
+
+      await withLoading(els.create, async () => {
+        const allowed = [];
+        if (els.allow_single.checked) allowed.push('single');
+        if (els.allow_duo.checked) allowed.push('duo');
+        if (els.allow_trio.checked) allowed.push('trio');
+        if (!allowed.length) { showToast('Select at least one ticket tier', 'error'); return; }
+
+        const body = {
+          title: els.title.value.trim(),
+          description: els.desc.value.trim(),
+          category: els.category.value,
+          location: els.location.value.trim(),
+          start_time: els.start.value,
+          end_time: els.end.value,
+          capacity: Number(els.capacity.value) || null,
+          status: els.status.value,
+          visibility: els.visibility.value,
+          price_single_cents: els.price_single.value ? Math.round(Number(els.price_single.value) * 100) : null,
+          price_duo_cents: els.price_duo.value ? Math.round(Number(els.price_duo.value) * 100) : null,
+          price_trio_cents: els.price_trio.value ? Math.round(Number(els.price_trio.value) * 100) : null,
+          allowed_tiers: allowed.join(','),
+          discounts_enabled: els.discounts_enabled.checked,
+          discount_codes: els.discounts_enabled.checked ? collectDiscountCodes() : []
+        };
+
+        const url = isEditing ? `/api/events/${editingUuid}` : '/api/events';
+        const method = isEditing ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+          if (isEditing) {
+            showToast('✅ Event updated!');
+            exitEditMode();
+            loadEvents();
+            return;
+          }
+
+          const data = await res.json();
+          lastCreatedUuid = data.event.uuid;
+          showToast('🎉 Event created!');
+
+          const box = document.getElementById('createdUuidBox');
+          box.innerHTML = `
+            <div class="uuid-box" style="margin-bottom:18px;">
+              <div>
+                <div class="uuid-label">Your Event ID — save this</div>
+                <div class="uuid-value">UUID : ${lastCreatedUuid}</div>
+              </div>
+              <div class="flex" style="gap:8px;">
+                <button type="button" class="btn outline" id="copyUuidBtn">📋 Copy</button>
+                <button type="button" class="btn primary" id="goToPaymentBtn">Set up Payment →</button>
+              </div>
+            </div>`;
+          box.querySelector('#copyUuidBtn').addEventListener('click', () => copyUuid(lastCreatedUuid));
+          box.querySelector('#goToPaymentBtn').addEventListener('click', () => goToPaymentSetup(lastCreatedUuid));
+
+          loadEvents();
+          document.querySelectorAll('#tab-create .form .input, #tab-create .form textarea, #tab-create .form select').forEach(input => input.value = '');
+          document.querySelectorAll('#tab-create input[type="checkbox"]').forEach(cb => cb.checked = cb.id === 'allow_single');
+          resetDiscountCodesForm();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          showToast('Failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+      });
+    }
+
+    function toDatetimeLocal(value) {
+      // Trims a stored "YYYY-MM-DDTHH:MM[...]" string down to what
+      // <input type="datetime-local"> expects, without shifting the timezone.
+      if (!value) return '';
+      return value.slice(0, 16);
+    }
+
+    function startEditEvent(uuid) {
+      const ev = myEventsCache.find(e => e.uuid === uuid);
+      if (!ev) { showToast('Could not find that event to edit', 'error'); return; }
+
+      editingUuid = uuid;
+      switchTab('create');
+
+      els.title.value = ev.title || '';
+      els.desc.value = ev.description || '';
+      els.category.value = ev.category || '';
+      els.location.value = ev.location || '';
+      els.start.value = toDatetimeLocal(ev.start_time);
+      els.end.value = toDatetimeLocal(ev.end_time);
+      els.capacity.value = ev.capacity || '';
+      els.status.value = ev.status || 'published';
+      els.visibility.value = ev.visibility || 'public';
+
+      const tiers = (ev.allowed_tiers || 'single').split(',');
+      els.allow_single.checked = tiers.includes('single');
+      els.allow_duo.checked = tiers.includes('duo');
+      els.allow_trio.checked = tiers.includes('trio');
+      els.price_single.value = ev.price_single_cents != null ? ev.price_single_cents / 100 : '';
+      els.price_duo.value = ev.price_duo_cents != null ? ev.price_duo_cents / 100 : '';
+      els.price_trio.value = ev.price_trio_cents != null ? ev.price_trio_cents / 100 : '';
+
+      resetDiscountCodesForm();
+      els.discounts_enabled.checked = !!ev.discounts_enabled;
+      els.discountCodesWrap.style.display = ev.discounts_enabled ? 'block' : 'none';
+      if (ev.discounts_enabled) {
+        fetch(`/api/organizer/events/${uuid}/discounts`, { credentials: 'include' })
+          .then(res => res.ok ? res.json() : { discounts: [] })
+          .then(data => {
+            const list = data.discounts || [];
+            if (!list.length) { addDiscountCodeRow(); return; }
+            list.forEach(d => addDiscountCodeRow(d));
+          })
+          .catch(() => addDiscountCodeRow());
+      }
+
+      document.getElementById('createdUuidBox').innerHTML = '';
+      document.getElementById('createFormTitle').textContent = `Editing: ${ev.title}`;
+      els.create.textContent = 'Save Changes';
+      document.getElementById('cancelEdit').style.display = 'inline-flex';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function exitEditMode() {
+      editingUuid = null;
+      document.getElementById('createFormTitle').textContent = 'Create a New Event';
+      els.create.textContent = 'Create Event';
+      document.getElementById('cancelEdit').style.display = 'none';
+      document.querySelectorAll('#tab-create .form .input, #tab-create .form textarea, #tab-create .form select').forEach(input => input.value = '');
+      document.querySelectorAll('#tab-create input[type="checkbox"]').forEach(cb => cb.checked = cb.id === 'allow_single');
+      resetDiscountCodesForm();
+    }
+
+    function copyUuid(uuid) {
+      // ✅ Try the classic execCommand approach FIRST — it's synchronous and
+      // doesn't depend on a secure context, so it works reliably across plain
+      // HTTP hosting, older browsers, and sandboxed previews. The modern
+      // navigator.clipboard API is used as a secondary attempt only if that
+      // fails, since it requires a secure context and can lose the "user
+      // just clicked something" gesture once you're past an await.
+      let copied = false;
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = uuid;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (e) { copied = false; }
+
+      if (copied) {
+        showToast('Event ID copied to clipboard!', 'success');
+        return;
+      }
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(uuid)
+          .then(() => showToast('Event ID copied to clipboard!', 'success'))
+          .catch(() => showToast(`Couldn't auto-copy — please select and copy manually: ${uuid}`, 'error'));
+        return;
+      }
+
+      showToast(`Couldn't auto-copy — please select and copy manually: ${uuid}`, 'error');
+    }
+
+    function goToPaymentSetup(uuid) {
+      switchTab('payment-setup');
+      els.e_uuid.value = uuid;
+      els.e_uuid.focus();
+      // Visible confirmation that something actually happened, in case the
+      // tab switch itself is easy to miss.
+      els.e_uuid.classList.add('flash-highlight');
+      setTimeout(() => els.e_uuid.classList.remove('flash-highlight'), 1200);
+    }
+
+    async function loadEvents() {
+      const res = await fetch('/api/organizer/my-events?active_only=1', { credentials: 'include' });
+      if (!res.ok) { els.events.innerHTML = '<div class="muted">Failed to load events</div>'; return; }
+      const data = await res.json();
+      myEventsCache = data.events;
+
+      document.getElementById('quick-stats').innerHTML = `
+        <div class="card stat-card"><div class="num">${data.events.length}</div><div class="lbl">Live / Upcoming Events</div></div>
+      `;
+
+      if (!data.events.length) {
+        els.events.innerHTML = `<div class="empty-state"><div class="icon">🗓️</div><h3>No live events yet</h3><p class="muted">Create your first event in the "Create Event" tab.</p></div>`;
+        return;
+      }
+
+      els.events.innerHTML = data.events.map(e => `
+        <div class="event-row">
+          <div class="event-row-info">
+            <b>${e.title}</b> ${e.category ? `<span class="cat-chip cat-${e.category.toLowerCase()}" style="margin-left:6px;">${e.category}</span>` : ''}<br/>
+            <span class="muted" style="font-size:.85rem;">${new Date(e.start_time).toLocaleString('en-IN')}${e.end_time ? ' → ' + new Date(e.end_time).toLocaleString('en-IN') : ''}</span><br/>
+            <span class="uuid-value" style="font-size:.85rem;">UUID : ${e.uuid}</span>
+          </div>
+          <div class="event-row-actions">
+            <button class="btn outline" data-action="edit" data-uuid="${e.uuid}">✏️ Edit</button>
+            <button class="btn outline" data-action="analytics" data-uuid="${e.uuid}">📊 Analytics</button>
+            <button class="btn outline" data-action="payment" data-uuid="${e.uuid}">💳 Payment Setup</button>
+            <button class="btn outline" data-action="copy" data-uuid="${e.uuid}">📋 Copy ID</button>
+            <button class="btn danger" data-action="delete" data-uuid="${e.uuid}">🗑️ Delete</button>
+          </div>
+        </div>
+      `).join('');
+
+      els.events.removeEventListener('click', handleEventClick);
+      els.events.addEventListener('click', handleEventClick);
+    }
+
+    async function handleEventClick(e) {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const uuid = btn.dataset.uuid;
+      const action = btn.dataset.action;
+
+      switch (action) {
+        case 'edit':
+          startEditEvent(uuid);
+          break;
+        case 'analytics':
+          switchTab('analytics');
+          await withLoading(btn, async () => {
+            const r = await fetch(`/api/analytics/events/${uuid}`, { credentials: 'include' });
+            if (!r.ok) return showToast('Forbidden or not found', 'error');
+            const a = await r.json();
+            els.analytics.innerHTML = `
+              <div class="row">
+                <div class="card stat-card"><div class="num">${a.metrics.totalRegistrations}</div><div class="lbl">Total Registrations</div></div>
+                <div class="card stat-card"><div class="num">${a.metrics.paid}</div><div class="lbl">Paid</div></div>
+                <div class="card stat-card"><div class="num">${a.metrics.checkedIn}</div><div class="lbl">Checked-in</div></div>
+              </div>`;
+          });
+          break;
+        case 'payment':
+          goToPaymentSetup(uuid);
+          break;
+        case 'copy':
+          copyUuid(uuid);
+          break;
+        case 'delete':
+          if (!confirm('Delete this event? This action cannot be undone.')) return;
+          await withLoading(btn, async () => {
+            const r = await fetch(`/api/events/${uuid}`, { method: 'DELETE', credentials: 'include' });
+            if (r.ok) { showToast('Event deleted'); loadEvents(); }
+            else showToast('Failed to delete', 'error');
+          });
+          break;
+      }
+    }
+
+    async function savePaymentSetup() {
+      const e_uuid = els.e_uuid.value.trim();
+      if (!e_uuid) { showToast('Event ID is required', 'error'); return; }
+
+      await withLoading(els.savePay, async () => {
+        const fd = new FormData();
+        fd.append('bank_account_name', document.getElementById('acc_name').value);
+        fd.append('bank_account_no', document.getElementById('acc_no').value);
+        fd.append('bank_ifsc', document.getElementById('ifsc').value);
+        fd.append('upi_id', document.getElementById('upi').value);
+        fd.append('payment_notes', document.getElementById('notes').value);
+        const qrFile = document.getElementById('upi_qr').files[0];
+        if (qrFile) fd.append('upi_qr', qrFile);
+
+        const res = await fetch(`/api/events/${e_uuid}/payment-setup`, { method: 'PUT', credentials: 'include', body: fd });
+        showToast(res.ok ? 'Payment setup saved!' : 'Failed to save — check the Event ID', res.ok ? 'success' : 'error');
+      });
+    }
+
+    async function listProofs() {
+      const e_uuid_list = els.e_uuid_list.value.trim();
+      if (!e_uuid_list) { showToast('Event ID required', 'error'); return; }
+
+      await withLoading(els.listProofs, async () => {
+        const res = await fetch(`/api/organizer/events/${e_uuid_list}/payments?status=pending`, { credentials: 'include' });
+        if (!res.ok) { showToast('Failed to load proofs — check the Event ID', 'error'); return; }
+
+        const data = await res.json();
+        if (!data.payments.length) {
+          els.proofs.innerHTML = `<div class="empty-state"><div class="icon">✅</div><h3>No pending proofs</h3><p class="muted">Nothing to review right now.</p></div>`;
+          return;
+        }
+
+        els.proofs.innerHTML = '';
+        data.payments.forEach(p => {
+          const d = document.createElement('div');
+          d.className = 'card';
+          d.style.marginBottom = '10px';
+          d.innerHTML = `
+            <div><b>Ticket #${String(p.ticket_number).padStart(4, '0')}</b></div>
+            <div class="muted">${p.user_name} (${p.user_email})</div>
+            <div>Transaction ID / UTR: <b>${p.proof_txn_id || '-'}</b></div>
+            <div class="flex" style="margin-top:8px;">
+              <button class="btn primary" data-approve="${p.ticket_uuid}">✅ Approve</button>
+              <button class="btn danger" data-reject="${p.ticket_uuid}">❌ Reject</button>
+            </div>`;
+          d.querySelector('[data-approve]').onclick = () => approvePayment(p.ticket_uuid);
+          d.querySelector('[data-reject]').onclick = () => rejectPayment(p.ticket_uuid);
+          els.proofs.appendChild(d);
+        });
+        showToast(`${data.payments.length} pending proof(s) loaded`);
+      });
+    }
+
+    async function approvePayment(ticketUuid) {
+      const res = await fetch(`/api/organizer/payments/${ticketUuid}/approve`, { method: 'POST', credentials: 'include' });
+      showToast(res.ok ? 'Approved!' : 'Failed', res.ok ? 'success' : 'error');
+      els.listProofs.click();
+    }
+
+    async function rejectPayment(ticketUuid) {
+      const reason = prompt('Reason for rejection?');
+      if (!reason) return;
+      const res = await fetch(`/api/organizer/payments/${ticketUuid}/reject`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      });
+      showToast(res.ok ? 'Rejected' : 'Failed', res.ok ? 'success' : 'error');
+      els.listProofs.click();
+    }
+
+    // ===============================
+    // ADMIN: organizer applications
+    // ===============================
+    async function loadApplications() {
+      const res = await fetch('/api/admin/organizer-applications', { credentials: 'include' });
+      if (!res.ok) return;
+      const { applications } = await res.json();
+      const pill = document.getElementById('pendingPill');
+      if (pill) {
+        if (applications.length) { pill.textContent = applications.length; pill.style.display = 'inline-flex'; }
+        else pill.style.display = 'none';
+      }
+
+      const wrap = document.getElementById('applications');
+      if (!wrap) return;
+      if (!applications.length) {
+        wrap.innerHTML = `<div class="empty-state"><div class="icon">✅</div><h3>No pending applications</h3><p class="muted">You're all caught up.</p></div>`;
+        return;
+      }
+      wrap.innerHTML = applications.map(a => `
+        <div class="applicant-card">
+          <div class="applicant-info">
+            <h5>${a.name} <span class="muted" style="font-weight:400;">— ${a.email}</span></h5>
+            <div class="muted">📱 ${a.mobile}${a.roll_number ? ' • ' + a.roll_number : ''}</div>
+            ${a.organizer_reason ? `<div class="muted" style="margin-top:6px;">"${a.organizer_reason}"</div>` : ''}
+          </div>
+          <div class="applicant-actions">
+            <button class="btn primary" data-approve-app="${a.id}">✅ Approve</button>
+            <button class="btn danger" data-reject-app="${a.id}">❌ Reject</button>
+          </div>
+        </div>
+      `).join('');
+
+      wrap.querySelectorAll('[data-approve-app]').forEach(btn => {
+        btn.onclick = () => reviewApplication(btn.dataset.approveApp, 'approve');
+      });
+      wrap.querySelectorAll('[data-reject-app]').forEach(btn => {
+        btn.onclick = () => reviewApplication(btn.dataset.rejectApp, 'reject');
+      });
+    }
+
+    async function reviewApplication(id, action) {
+      const res = await fetch(`/api/admin/organizer-applications/${id}/${action}`, { method: 'POST', credentials: 'include' });
+      showToast(res.ok ? `Application ${action}d` : 'Failed', res.ok ? 'success' : 'error');
+      loadApplications();
+    }
+  </script>
+  <script src="/assets/js/chatbot.js"></script>
+</body>
+</html>

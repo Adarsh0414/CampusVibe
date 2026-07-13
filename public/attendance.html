@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Attendance - CampusVibe</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <script src="/assets/js/lottie.min.js"></script>
+  <script src="/assets/i18n/i18n-data.js"></script>
+  <script src="/assets/js/i18n.js"></script>
+  <style>
+    .event-lock-bar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 14px 18px; border-radius: var(--radius-md);
+      background: rgba(0,209,178,0.1); border: 1px solid rgba(0,209,178,0.4); margin-bottom: 20px;
+    }
+    .event-lock-bar.unlocked { background: rgba(255,183,3,0.1); border-color: rgba(255,183,3,0.4); }
+    .event-lock-bar input { flex: 1; min-width: 200px; }
+    .mode-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+    .mode-tab { padding: 10px 20px; border-radius: 10px; border: 1px solid var(--border-2); background: rgba(20,26,56,0.65); color: var(--muted); cursor: pointer; font-weight: 600; }
+    .mode-tab.active { background: linear-gradient(180deg, var(--primary), var(--primary-2)); color: #fff; border-color: transparent; }
+    .mode-panel { display: none; }
+    .mode-panel.active { display: block; }
+    .big-input { font-size: 1.3rem; text-align: center; letter-spacing: .04em; padding: 16px; }
+    .recent-feed { max-height: 320px; overflow-y: auto; }
+    .recent-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 10px; background: rgba(255,255,255,0.03); margin-bottom: 8px; }
+    .recent-item .time { color: var(--muted-2); font-size: .78rem; }
+    video#preview { width: 100%; background: #000; border-radius: 12px; max-height: 320px; object-fit: cover; }
+    .scan-status { text-align: center; padding: 10px; color: var(--muted); font-size: .85rem; }
+    details.advanced summary { cursor: pointer; color: var(--muted); font-size: .88rem; padding: 8px 0; }
+  </style>
+</head>
+<body>
+  <header class="cv-header">
+    <div class="container header-inner">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit">
+        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <div class="brand-text">
+          <h1>CampusVibe</h1>
+          <p class="tagline">Attendance Check-in</p>
+        </div>
+      </a>
+      <nav class="nav">
+        <a href="/dashboard.html" class="nav-link"><span data-i18n="nav_dashboard">Dashboard</span></a>
+        <a href="/" class="nav-link"><span data-i18n="nav_home">Home</span></a>
+        <span data-i18n-mount></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container" style="padding:24px 0; max-width:820px;">
+    <div id="lottie-scan" style="height:80px; opacity:.5;"></div>
+
+    <!-- Set the event ONCE, reused across every check-in -->
+    <div class="event-lock-bar unlocked" id="eventLockBar">
+      <div style="flex:none;font-size:22px;">🔒</div>
+      <input class="input" id="eventUuidInput" placeholder="Paste Event ID once (e.g. 09072026482913)" />
+      <button class="btn primary" id="lockEventBtn">Set Event</button>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="scan">📷 QR Scan</button>
+      <button class="mode-tab" data-mode="manual">🔢 Manual by Ticket #</button>
+    </div>
+
+    <!-- ============ QR SCAN MODE ============ -->
+    <div class="mode-panel active" id="mode-scan">
+      <div class="card">
+        <h3 style="margin-top:0;">Scan Ticket QR</h3>
+        <p class="muted">Point the camera at a ticket's QR code. Only paid tickets for the locked event can be checked in.</p>
+        <video id="preview" playsinline></video>
+        <div class="flex" style="margin-top:10px;flex-wrap:wrap;">
+          <button class="btn primary" id="startCam">▶️ Start Camera</button>
+          <button class="btn outline" id="stopCam">⏹️ Stop</button>
+          <select class="input" id="cameraSelect" style="max-width:220px;"></select>
+        </div>
+        <div class="scan-status" id="scanStatus"></div>
+
+        <details class="advanced">
+          <summary>Paste QR payload manually instead</summary>
+          <div class="flex-col" style="margin-top:8px;">
+            <textarea id="code" class="input" placeholder='{"ticket_uuid":"...","event_uuid":"...","user_id":123,"sig":"..."}'></textarea>
+            <button class="btn outline" id="scanPaste" style="justify-self:start;">Submit Pasted Code</button>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- ============ MANUAL BY TICKET # MODE ============ -->
+    <div class="mode-panel" id="mode-manual">
+      <div class="card">
+        <h3 style="margin-top:0;">Mark Present by Ticket Number</h3>
+        <p class="muted">Ask the student for their Ticket ID (e.g. <b>#0007</b>, shown on their e-ticket) — no other lookup needed.</p>
+        <input class="input big-input" id="ticketNumber" placeholder="0007" inputmode="numeric" />
+        <div class="flex" style="margin-top:12px;">
+          <button class="btn primary" id="markPresentBtn" style="flex:1;">✅ Mark Present</button>
+        </div>
+        <div id="manualMsg" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <!-- ============ RECENT CHECK-INS ============ -->
+    <div class="card" style="margin-top:16px;">
+      <h3 style="margin-top:0;">Recent Check-ins (this session)</h3>
+      <div class="recent-feed" id="recentFeed">
+        <p class="muted" style="text-align:center;padding:14px 0;">No check-ins yet this session.</p>
+      </div>
+    </div>
+
+    <!-- ============ OFFLINE BACKUP (secondary, collapsed) ============ -->
+    <details class="advanced" style="margin-top:16px;">
+      <summary>⚙️ Offline backup (export / import attendance JSON)</summary>
+      <div class="card" style="margin-top:8px;">
+        <div class="flex">
+          <input class="input" id="exportEvent" placeholder="Numeric Event DB ID (see dashboard analytics)" />
+          <button class="btn outline" id="exportBtn">Export</button>
+        </div>
+        <div class="flex" style="margin-top:8px;">
+          <textarea class="input" id="importText" placeholder="Paste exported JSON here"></textarea>
+        </div>
+        <button class="btn outline" id="importBtn" style="margin-top:8px;">Import</button>
+      </div>
+    </details>
+  </main>
+
+  <script>
+    let lockedEventUuid = sessionStorage.getItem('attendance_event_uuid') || '';
+    let recentCheckins = [];
+
+    // ===============================
+    // Auth gate
+    // ===============================
+    (async () => {
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      if (!res.ok) { location.href = '/login.html'; return; }
+      const { user } = await res.json();
+      if (!(user.role === 'committee' || user.role === 'admin')) {
+        document.querySelector('main').innerHTML = `
+          <div class="card" style="text-align:center;max-width:420px;margin:60px auto;">
+            <div style="font-size:36px;">🔒</div>
+            <h3>Organizer access required</h3>
+            <a class="btn primary" href="/">Back to Home</a>
+          </div>`;
+      }
+    })();
+
+    // ===============================
+    // Event lock bar
+    // ===============================
+    const eventUuidInput = document.getElementById('eventUuidInput');
+    const eventLockBar = document.getElementById('eventLockBar');
+    if (lockedEventUuid) applyLockedUi();
+
+    document.getElementById('lockEventBtn').addEventListener('click', () => {
+      const val = eventUuidInput.value.trim();
+      if (!val) { showManualMsg('Enter an Event ID first', 'warn'); return; }
+      lockedEventUuid = val;
+      sessionStorage.setItem('attendance_event_uuid', val);
+      applyLockedUi();
+    });
+
+    function applyLockedUi() {
+      eventUuidInput.value = lockedEventUuid;
+      eventLockBar.classList.remove('unlocked');
+      document.getElementById('lockEventBtn').textContent = 'Change Event';
+    }
+
+    function requireLockedEvent() {
+      if (!lockedEventUuid) {
+        showManualMsg('Set the Event ID above first', 'warn');
+        return false;
+      }
+      return true;
+    }
+
+    // ===============================
+    // Mode tabs
+    // ===============================
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`mode-${tab.dataset.mode}`).classList.add('active');
+      });
+    });
+
+    // ===============================
+    // Recent check-ins feed
+    // ===============================
+    function pushRecent(name, email, already) {
+      recentCheckins.unshift({ name, email, already, time: new Date().toLocaleTimeString('en-IN') });
+      recentCheckins = recentCheckins.slice(0, 20);
+      renderRecent();
+    }
+
+    function renderRecent() {
+      const feed = document.getElementById('recentFeed');
+      if (!recentCheckins.length) {
+        feed.innerHTML = '<p class="muted" style="text-align:center;padding:14px 0;">No check-ins yet this session.</p>';
+        return;
+      }
+      feed.innerHTML = recentCheckins.map(c => `
+        <div class="recent-item">
+          <div><b>${c.name}</b> <span class="muted">(${c.email})</span> ${c.already ? '<span class="muted">— already checked-in</span>' : ''}</div>
+          <div class="time">${c.time}</div>
+        </div>
+      `).join('');
+    }
+
+    // ===============================
+    // QR SCAN
+    // ===============================
+    async function postCode(code) {
+      const res = await fetch('/api/attendance/scan', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include', body: JSON.stringify({ code }) });
+      const status = document.getElementById('scanStatus');
+      if (res.ok) {
+        const data = await res.json();
+        status.innerHTML = `<div class="alert ${data.already ? 'warn' : 'info'}">${data.already ? 'Already checked-in' : '✅ Checked-in'}: ${data.details.user_name} (${data.details.user_email})</div>`;
+        pushRecent(data.details.user_name, data.details.user_email, data.already);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        status.innerHTML = `<div class="alert warn">Failed${data.error ? ': ' + data.error : ''}</div>`;
+      }
+    }
+
+    document.getElementById('scanPaste').addEventListener('click', () => {
+      const code = document.getElementById('code').value;
+      if (code) postCode(code);
+    });
+
+    const video = document.getElementById('preview');
+    const cameraSelect = document.getElementById('cameraSelect');
+    let stream; let scanning = false; let rafId;
+
+    async function listCameras() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      cameraSelect.innerHTML = '';
+      cams.forEach((c, idx) => {
+        const opt = document.createElement('option');
+        opt.value = c.deviceId;
+        opt.textContent = c.label || `Camera ${idx + 1}`;
+        cameraSelect.appendChild(opt);
+      });
+    }
+
+    async function startCamera() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          document.getElementById('scanStatus').innerHTML = '<div class="alert warn">Camera API not supported in this browser.</div>';
+          return;
+        }
+        await listCameras();
+        const deviceId = cameraSelect.value || undefined;
+        stream = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' } });
+        video.srcObject = stream; await video.play(); scanning = true; scanLoop();
+      } catch (e) {
+        document.getElementById('scanStatus').innerHTML = `<div class="alert warn">Camera error: ${e.message}</div>`;
+      }
+    }
+
+    function stopCamera() {
+      scanning = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      video.srcObject = null;
+    }
+
+    async function scanLoop() {
+      if (!('BarcodeDetector' in window)) return;
+      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const tick = async () => {
+        if (!scanning) return;
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        if (canvas.width && canvas.height) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          try {
+            const codes = await detector.detect(canvas);
+            if (codes.length) {
+              const raw = codes[0].rawValue;
+              stopCamera();
+              postCode(raw);
+              return;
+            }
+          } catch (_) {}
+        }
+        rafId = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+
+    document.getElementById('startCam').addEventListener('click', startCamera);
+    document.getElementById('stopCam').addEventListener('click', stopCamera);
+    if (!('BarcodeDetector' in window)) {
+      document.getElementById('scanStatus').innerHTML = '<div class="alert warn">Live QR scanning isn\'t supported in this browser. Use "Paste QR payload manually" below, or the Manual by Ticket # tab.</div>';
+    }
+
+    // ===============================
+    // MANUAL BY TICKET NUMBER
+    // ===============================
+    function showManualMsg(text, type) {
+      document.getElementById('manualMsg').innerHTML = `<div class="alert ${type}">${text}</div>`;
+    }
+
+    document.getElementById('markPresentBtn').addEventListener('click', async () => {
+      if (!requireLockedEvent()) return;
+      const ticketNumber = Number(document.getElementById('ticketNumber').value);
+      if (!ticketNumber) { showManualMsg('Enter a valid Ticket Number', 'warn'); return; }
+
+      const res = await fetch('/api/attendance/manual-by-ticket', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include',
+        body: JSON.stringify({ event_uuid: lockedEventUuid, ticket_number: ticketNumber, present: true })
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        showManualMsg(`${data.already ? 'Already checked-in' : '✅ Marked present'}: ${data.details.names} (${data.details.user_email})`, data.already ? 'warn' : 'info');
+        pushRecent(data.details.names, data.details.user_email, data.already);
+        document.getElementById('ticketNumber').value = '';
+        document.getElementById('ticketNumber').focus();
+      } else {
+        showManualMsg(data.error || 'Failed to mark attendance', 'warn');
+      }
+    });
+
+    document.getElementById('ticketNumber').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('markPresentBtn').click();
+    });
+
+    // ===============================
+    // OFFLINE BACKUP
+    // ===============================
+    document.getElementById('exportBtn').addEventListener('click', async () => {
+      const id = Number(document.getElementById('exportEvent').value);
+      if (!id) { alert('Please enter a valid numeric Event DB ID.'); return; }
+      const res = await fetch(`/api/attendance/${id}/export`, { credentials: 'include' });
+      if (!res.ok) { alert('Failed to export'); return; }
+      const data = await res.json();
+      const txt = JSON.stringify(data, null, 2);
+      try {
+        if (!navigator.clipboard || !window.isSecureContext) throw new Error('unavailable');
+        await navigator.clipboard.writeText(txt);
+        alert('Copied JSON to clipboard');
+      } catch (e) {
+        alert('Could not copy to clipboard automatically. Please copy manually:\n\n' + txt);
+      }
+    });
+
+    document.getElementById('importBtn').addEventListener('click', async () => {
+      const id = Number(document.getElementById('exportEvent').value);
+      if (!id) { alert('Please enter a valid numeric Event DB ID.'); return; }
+      let parsed;
+      try { parsed = JSON.parse(document.getElementById('importText').value || '{}'); }
+      catch (e) { alert('Invalid JSON.'); return; }
+      const attendance = parsed.attendance || [];
+      const res = await fetch(`/api/attendance/${id}/import`, { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include', body: JSON.stringify({ attendance }) });
+      alert(res.ok ? 'Imported' : 'Failed to import');
+    });
+
+    try {
+      if (window.lottie) {
+        window.lottie.loadAnimation({
+          container: document.getElementById('lottie-scan'),
+          renderer: 'svg', loop: true, autoplay: true,
+          path: '/assets/lottie/scan.json'
+        });
+      }
+    } catch (e) { /* ignore */ }
+  </script>
+  <script src="/assets/js/chatbot.js"></script>
+</body>
+</html>
