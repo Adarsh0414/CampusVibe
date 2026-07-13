@@ -25,6 +25,15 @@ const crypto = require('crypto');
 const multer = require('multer');
 
 const app = express();
+
+// ✅ Required when running behind a reverse proxy (Render, Railway, Fly.io,
+// Heroku, etc.). Without this, Express sees every request as coming from
+// the proxy's own IP address instead of the real visitor's IP — which
+// means express-rate-limit ends up counting ALL visitors combined as a
+// single "user", so the whole site can hit the rate limit and start
+// rejecting everyone after only moderate traffic. `1` means "trust the
+// first proxy hop," which matches how Render's routing works.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_DEV_SECRET';
 
@@ -262,7 +271,37 @@ app.use(helmet({
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
+
+// ✅ Rate limiting, split into two tiers instead of one blanket limit:
+//
+// 1) A generous general limiter for normal browsing/API use. The previous
+//    single limiter (500 requests / 15 min) applied to EVERY request,
+//    including every CSS/JS/image file and every API call a single page
+//    load makes — so just a few page loads or refreshes could exhaust it,
+//    especially combined with `trust proxy` not being set (see above),
+//    which made it worse by lumping all visitors together as one "user."
+// 2) A strict limiter only on login/register endpoints, which is what
+//    rate-limiting is actually *for* here — slowing down anyone trying to
+//    guess passwords — without punishing normal site usage.
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again in a few minutes.' },
+  // Static files (css/js/images/fonts) don't need to count against the limit at all.
+  skip: (req) => req.path.startsWith('/assets/') || req.path.startsWith('/uploads/')
+});
+app.use(generalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please wait a few minutes and try again.' }
+});
+app.use(['/api/auth/login', '/api/auth/register', '/api/auth/register-organizer'], authLimiter);
 
 // ✅ ALL API ROUTES FIRST (before static)
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
