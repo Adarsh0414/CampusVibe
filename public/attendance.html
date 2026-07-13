@@ -26,7 +26,7 @@
     .recent-feed { max-height: 320px; overflow-y: auto; }
     .recent-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 10px; background: rgba(255,255,255,0.03); margin-bottom: 8px; }
     .recent-item .time { color: var(--muted-2); font-size: .78rem; }
-    video#preview { width: 100%; background: #000; border-radius: 12px; max-height: 320px; object-fit: cover; }
+    video#preview { width: 100%; background: #000; border-radius: 12px; max-height: 480px; min-height: 280px; aspect-ratio: 4 / 3; object-fit: cover; }
     .scan-status { text-align: center; padding: 10px; color: var(--muted); font-size: .85rem; }
     details.advanced summary { cursor: pointer; color: var(--muted); font-size: .88rem; padding: 8px 0; }
   </style>
@@ -153,6 +153,17 @@
     if (lockedEventUuid) applyLockedUi();
 
     document.getElementById('lockEventBtn').addEventListener('click', () => {
+      // Already locked -> "Change Event" clicked: unlock so a new ID can be typed.
+      if (lockedEventUuid) {
+        lockedEventUuid = '';
+        sessionStorage.removeItem('attendance_event_uuid');
+        eventUuidInput.value = '';
+        eventUuidInput.focus();
+        eventLockBar.classList.add('unlocked');
+        document.getElementById('lockEventBtn').textContent = 'Set Event';
+        return;
+      }
+      // Not locked yet -> "Set Event" clicked: lock in the typed ID.
       const val = eventUuidInput.value.trim();
       if (!val) { showManualMsg('Enter an Event ID first', 'warn'); return; }
       lockedEventUuid = val;
@@ -234,9 +245,18 @@
     const cameraSelect = document.getElementById('cameraSelect');
     let stream; let scanning = false; let rafId;
 
+    let camerasListed = false;
+
     async function listCameras() {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const cams = devices.filter(d => d.kind === 'videoinput');
+      if (!cams.length) return;
+      const hasLabels = cams.every(c => c.label);
+      // Once we've built the list with real labels once, don't rebuild it again —
+      // rebuilding was wiping out whatever camera the user manually picked.
+      if (camerasListed && hasLabels) return;
+
+      const previousValue = cameraSelect.value;
       cameraSelect.innerHTML = '';
       cams.forEach((c, idx) => {
         const opt = document.createElement('option');
@@ -244,6 +264,14 @@
         opt.textContent = c.label || `Camera ${idx + 1}`;
         cameraSelect.appendChild(opt);
       });
+
+      if (previousValue && cams.some(c => c.deviceId === previousValue)) {
+        cameraSelect.value = previousValue;
+      } else {
+        const backCam = cams.find(c => /back|rear|environment/i.test(c.label));
+        if (backCam) cameraSelect.value = backCam.deviceId;
+      }
+      if (hasLabels) camerasListed = true;
     }
 
     async function startCamera() {

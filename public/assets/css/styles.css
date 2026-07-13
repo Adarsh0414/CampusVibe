@@ -73,6 +73,18 @@ html, body {
   font-family: var(--font); font-size: 16px; line-height: 1.5;
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  height: 100%;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+body > main {
+  flex: 1 0 auto;
+}
+body > footer {
+  flex-shrink: 0;
 }
 img { max-width: 100%; height: auto; display: block; }
 .container { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 18px; }
