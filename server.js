@@ -124,30 +124,35 @@ const schema = `CREATE TABLE IF NOT EXISTS users (
 
 setTimeout(() => {
   db.exec(schema, (err) => {
-    if (err) console.error('❌ Schema failed:', err.message);
-    else console.log('✅ Schema ready (FULL production schema)');
-  });
-
-  // ✅ Safe migrations for organizer-approval workflow (ignore "duplicate column" errors)
-  db.run(`ALTER TABLE users ADD COLUMN organizer_status TEXT`, () => {});
-  db.run(`ALTER TABLE users ADD COLUMN organizer_reason TEXT`, () => {});
-  db.run(`ALTER TABLE users ADD COLUMN avatar_url TEXT`, () => {});
-  // ✅ Safe migration for organizer-configurable discount codes
-  db.run(`ALTER TABLE events ADD COLUMN discounts_enabled INTEGER NOT NULL DEFAULT 0`, () => {});
-  // ✅ Safe migration for the registration seat-hold/timeout system
-  db.run(`ALTER TABLE tickets ADD COLUMN hold_expires_at TEXT`, () => {});
-
-  // Seed admin — reads from ADMIN_EMAIL/ADMIN_PASSWORD in .env, falling back
-  // to a default only if they're not set (e.g. local first run).
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@campusvibe.local';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-  db.get('SELECT id FROM users WHERE email = ?', [adminEmail], (err, row) => {
-    if (!row) {
-      const hash = bcrypt.hashSync(adminPassword, 10);
-      db.run('INSERT INTO users (uuid, name, email, password_hash, role, created_at) VALUES (?,?,?,?,?,?)',
-        [uuidv4(), 'Administrator', adminEmail, hash, 'admin', dayjs().toISOString()]);
-      console.log('✅ Admin seeded:', adminEmail);
+    if (err) {
+      console.error('❌ Schema failed:', err.message);
+      return;
     }
+    console.log('✅ Schema ready (FULL production schema)');
+
+    // ✅ Safe migrations for organizer-approval workflow (ignore "duplicate column" errors)
+    // These now run only after the schema callback confirms tables exist.
+    db.run(`ALTER TABLE users ADD COLUMN organizer_status TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN organizer_reason TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN avatar_url TEXT`, () => {});
+    // ✅ Safe migration for organizer-configurable discount codes
+    db.run(`ALTER TABLE events ADD COLUMN discounts_enabled INTEGER NOT NULL DEFAULT 0`, () => {});
+    // ✅ Safe migration for the registration seat-hold/timeout system
+    db.run(`ALTER TABLE tickets ADD COLUMN hold_expires_at TEXT`, () => {});
+
+    // Seed admin — reads from ADMIN_EMAIL/ADMIN_PASSWORD in .env, falling back
+    // to a default only if they're not set (e.g. local first run).
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@campusvibe.local';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    db.get('SELECT id FROM users WHERE email = ?', [adminEmail], (err2, row) => {
+      if (err2) { console.error('❌ Admin seed check failed:', err2.message); return; }
+      if (!row) {
+        const hash = bcrypt.hashSync(adminPassword, 10);
+        db.run('INSERT INTO users (uuid, name, email, password_hash, role, created_at) VALUES (?,?,?,?,?,?)',
+          [uuidv4(), 'Administrator', adminEmail, hash, 'admin', dayjs().toISOString()]);
+        console.log('✅ Admin seeded:', adminEmail);
+      }
+    });
   });
 }, 100);
 
