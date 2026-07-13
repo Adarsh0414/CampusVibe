@@ -100,6 +100,12 @@
   function init() {
     mountSelector();
     applyToDom(document);
+    // On phones the nav can scroll horizontally (there are usually more
+    // items than fit in one row). Some mobile browsers restore a leftover
+    // scroll offset from a previous visit/page, which makes the nav look
+    // like it's showing a cut-off middle section instead of starting
+    // cleanly from the first item — force it back to the start.
+    document.querySelectorAll('.nav').forEach(nav => { nav.scrollLeft = 0; });
   }
 
   if (document.readyState === 'loading') {

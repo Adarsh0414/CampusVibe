@@ -761,6 +761,28 @@ body::before {
   .nav::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 999px; }
   .nav a, .nav .btn { white-space: nowrap; flex-shrink: 0; }
   .container { padding: 0 14px; }
+
+  /* The nav often has more items than fit in one row on a phone (My
+     Tickets/Dashboard/Help/Profile/Logout/Language). Rather than leaving
+     it looking like it's just cut off, a soft fade on the trailing edge
+     hints there's more to scroll — a common, familiar pattern (like
+     Instagram's story bar) instead of an abrupt hard edge. */
+  .header-inner { position: relative; }
+  .header-inner::after {
+    content: "";
+    position: absolute;
+    top: 12px; right: 0; bottom: 8px;
+    width: 28px;
+    background: linear-gradient(90deg, transparent, rgba(10,14,32,0.85) 80%);
+    pointer-events: none;
+  }
+
+  /* This quick-access row (Events/Profile/Help pills under the hero) just
+     repeats what's already reachable from the main nav above — useful
+     extra breathing room on a wide desktop screen, but on a phone it's
+     one more crowded row competing for space right under the headline.
+     Hidden here; nothing is lost since the same links live in the nav. */
+  .feature-bar { display: none; }
 }
 
 @media (max-width: 480px) {
@@ -846,3 +868,26 @@ html[dir="rtl"] .feature-bar { direction: rtl; }
   z-index: 10000; max-width: calc(100vw - 40px); text-align: center;
 }
 .share-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* =========================
+   Give page content some breathing room from the floating chat launcher
+   on phones — otherwise whatever content happens to scroll into the
+   bottom-right corner (like the dashboard's row of tab buttons) can end
+   up partly covered by it.
+   ========================= */
+@media (max-width: 720px) {
+  main { padding-bottom: 76px !important; }
+}
+
+/* Dashboard tab buttons (Create Event / My Events / Payment Setup / etc.)
+   on phones — a 2-across grid instead of loosely-wrapped flex items reads
+   more like an intentional, tidy button panel and avoids odd-width gaps
+   when the last row has just one item. */
+@media (max-width: 600px) {
+  .section-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .section-tab { width: 100%; text-align: center; }
+}
