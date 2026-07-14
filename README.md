@@ -6,7 +6,7 @@ CampusVibe is a full-stack web application built for efficient campus event mana
 
 ## 🎥 CampusVibe Demo
 
-[text](https://campusvibe-pu3g.onrender.com)
+[CampusVibe](https://campusvibe-pu3g.onrender.com)
 
 ## What's new from others
 
