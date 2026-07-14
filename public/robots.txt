@@ -1,9 +1,4 @@
 User-agent: *
-Allow: /
-Allow: /event.html
-Allow: /faq.html
-Allow: /register.html
-Allow: /organizer-apply.html
 
 Disallow: /api/
 Disallow: /login.html
