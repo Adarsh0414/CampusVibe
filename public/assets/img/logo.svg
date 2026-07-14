@@ -1,13 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="CampusVibe logo">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6c8cff"/>
-      <stop offset="1" stop-color="#00d1b2"/>
+    <linearGradient id="cvRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="45%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="cvFig" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#2563eb"/>
     </linearGradient>
   </defs>
-  <rect rx="24" ry="24" x="4" y="4" width="120" height="120" fill="#0e1738" stroke="url(#g)" stroke-width="6"/>
-  <g fill="url(#g)">
-    <path d="M32 88l16-48h16l16 48h-14l-3-12H49l-4 12H32zm21-24h14l-7-22-7 22z"/>
-    <circle cx="96" cy="32" r="8" />
+
+  <circle cx="100" cy="100" r="92" fill="none" stroke="url(#cvRing)" stroke-width="7"/>
+  <path d="M100 12 A88 88 0 0 1 178 66" fill="none" stroke="url(#cvRing)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M22 134 A88 88 0 0 0 156 172" fill="none" stroke="url(#cvRing)" stroke-width="14" stroke-linecap="round"/>
+
+  <g fill="#67e8f9">
+    <path d="M150 46 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4z"/>
+  </g>
+  <g fill="#c4b5fd">
+    <path d="M132 68 l2.5 6 6 2.5 -6 2.5 -2.5 6 -2.5 -6 -6 -2.5 6 -2.5z"/>
+  </g>
+  <g fill="#f472b6">
+    <path d="M162 78 l2.5 6 6 2.5 -6 2.5 -2.5 6 -2.5 -6 -6 -2.5 6 -2.5z"/>
+  </g>
+
+  <g fill="none" stroke="#e5e7ff" stroke-width="4" stroke-linejoin="round">
+    <path d="M62 100 L62 130 L138 130 L138 100" />
+    <path d="M52 100 L100 66 L148 100 Z" />
+    <path d="M100 66 L100 52" />
+    <path d="M100 52 L114 48 L100 44 Z" fill="#e5e7ff" stroke="none"/>
+  </g>
+  <circle cx="100" cy="78" r="6" fill="none" stroke="#e5e7ff" stroke-width="3.5"/>
+  <g fill="#e5e7ff">
+    <rect x="66" y="106" width="8" height="18"/>
+    <rect x="80" y="106" width="8" height="18"/>
+    <rect x="112" y="106" width="8" height="18"/>
+    <rect x="126" y="106" width="8" height="18"/>
+  </g>
+
+  <g fill="url(#cvFig)">
+    <circle cx="78" cy="112" r="9"/>
+    <path d="M78 123c-11 0-18 7-18 17h36c0-10-7-17-18-17z"/>
+    <circle cx="122" cy="112" r="9"/>
+    <path d="M122 123c-11 0-18 7-18 17h36c0-10-7-17-18-17z"/>
+    <circle cx="100" cy="104" r="12"/>
+    <path d="M100 118c-14 0-23 9-23 22h46c0-13-9-22-23-22z"/>
   </g>
 </svg>

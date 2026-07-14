@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Allow: /event.html
+Allow: /faq.html
+Allow: /register.html
+Allow: /organizer-apply.html
+
+Disallow: /api/
+Disallow: /login.html
+Disallow: /dashboard.html
+Disallow: /attendance.html
+Disallow: /profile.html
+Disallow: /my-tickets.html
+Disallow: /ticket.html
+Disallow: /payment.html
+
+Sitemap: https://campusvibe-pu3g.onrender.com/sitemap.xml
