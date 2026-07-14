@@ -1,16 +1,16 @@
-# CampusVibe
+# CampusVibe — Smart Campus Event Management Platform
 
 **Tagline:** *Ideal Management, Ideal Moments*
 
 CampusVibe is a full-stack web application built for efficient campus event management. It enables students to discover and register for events, organizers (committees) to create and manage events with ticketing and attendance tracking, and administrators to oversee the platform.
 
-## 🎥 CampusVibe Demo
+## 🌐 Live Website
 
 [CampusVibe](https://campusvibe-pu3g.onrender.com)
 
-## What's new from others
+## Enhancements & Improvements
 
-A running log of the larger features/fixes added on top of the original build, newest first:
+A running log of the larger features/fixes added on top of the original build :
 
 - **"Add to Calendar" actually works now** — the button pointed at an API route (`/api/events/:uuid/calendar.ics`) that never existed, so clicking it silently 404'd and fell through to the homepage. It's now a small menu with two options: download a real .ics file (opens in Outlook, Apple Calendar, etc. — your OS decides which app handles it) or add the event directly via a **Google Calendar** web link for anyone who'd rather not deal with a downloaded file.
 
@@ -173,7 +173,7 @@ The language selector (top navigation, every page) covers: **English, Hindi, Ben
 │   └── uploads/
 │       ├── payment_proofs/
 │       └── upi_qr/
-└── node_modules/
+└── node_modules(Generated automatically after npm install.)/
 ```
 
 - **`.env.example`**: An example file for environment variables. You should create a `.env` file based on this.
@@ -220,7 +220,7 @@ The language selector (top navigation, every page) covers: **English, Hindi, Ben
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a pull request.
+Contributions, suggestions, and feature requests are welcome. Feel free to open an issue or submit a pull request.
 
 ## Future Improvements
 
