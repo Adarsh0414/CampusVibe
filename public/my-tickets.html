@@ -37,10 +37,10 @@
   <style>
     .tickets-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 360px));
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 20px;
     }
-    @media (max-width: 700px) { .tickets-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 760px) { .tickets-grid { grid-template-columns: 1fr; } }
 
     .ticket-card {
       background: rgba(8,14,38,0.78);
