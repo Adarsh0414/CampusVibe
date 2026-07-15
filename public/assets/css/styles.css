@@ -387,23 +387,36 @@ body::before {
 .footer-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 24px; margin-bottom: 22px; }
 @media (max-width: 700px) {
   /* Keep the 3-column layout on mobile, just scaled down, instead of
-     stacking into a single column. */
-  .footer-grid { grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; text-align: left; }
+     stacking into a single column. Columns are more evenly balanced
+     here than on desktop since the brand/tagline column no longer
+     needs as much extra room once its text shrinks below. */
+  .footer-grid { grid-template-columns: 1.15fr 1fr 1fr; gap: 12px; text-align: left; }
   .footer-brand { justify-content: flex-start; }
 }
 @media (max-width: 480px) {
-  .footer-grid { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .footer-brand span { font-size: .9rem; }
-  .footer-brand img { width: 24px; height: 24px; }
-  .footer-col h5 { font-size: .7rem; margin-bottom: 6px; }
-  .footer-col a { font-size: .78rem; padding: 3px 0; }
+  .footer-grid { grid-template-columns: 1.05fr 0.95fr 1fr; gap: 8px; }
 }
 .footer-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .footer-brand img { width: 32px; height: 32px; }
 .footer-brand span { font-weight: 700; font-size: 1.05rem; color: var(--fg); }
+.footer-tagline { font-size: .9rem; max-width: 320px; line-height: 1.5; }
 .footer-col h5 { margin: 0 0 10px; font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-2); }
 .footer-col a { display: block; padding: 4px 0; color: var(--muted); font-size: .92rem; }
 .footer-col a:hover { color: var(--accent); }
+@media (max-width: 700px) {
+  .footer-brand span { font-size: .95rem; }
+  .footer-brand img { width: 28px; height: 28px; }
+  .footer-tagline { font-size: .78rem; line-height: 1.45; max-width: none; }
+  .footer-col h5 { font-size: .72rem; margin-bottom: 8px; }
+  .footer-col a { font-size: .8rem; padding: 3px 0; }
+}
+@media (max-width: 480px) {
+  .footer-brand span { font-size: .85rem; }
+  .footer-brand img { width: 22px; height: 22px; }
+  .footer-tagline { font-size: .7rem; line-height: 1.4; }
+  .footer-col h5 { font-size: .65rem; margin-bottom: 6px; }
+  .footer-col a { font-size: .72rem; padding: 2px 0; }
+}
 .footer-bottom { border-top: 1px solid var(--border); padding-top: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted-2); font-size: .85rem; }
 @media (max-width: 700px) { .footer-bottom { justify-content: center; text-align: center; } }
 
