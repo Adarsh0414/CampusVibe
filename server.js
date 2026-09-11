@@ -24,6 +24,18 @@ const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const multer = require('multer');
 
+// ✅ SEC-016 fix: several routes previously did `res.status(500).json({ error:
+// err.message })`, sending the SQLite driver's raw error text straight to the
+// client — which can include table/column names, constraint names, or
+// fragments of the query (e.g. "SQLITE_CONSTRAINT: UNIQUE constraint failed:
+// users.email"). This helper logs the full error server-side (where it's
+// actually useful for debugging) and always returns a generic, safe message
+// to the client instead.
+function sendDbError(res, err, context) {
+  console.error(`[DB error]${context ? ' ' + context : ''}:`, err && err.message);
+  return res.status(500).json({ error: 'Internal server error' });
+}
+
 const app = express();
 
 // ✅ Required when running behind a reverse proxy (Render, Railway, Fly.io,
@@ -35,7 +47,20 @@ const app = express();
 // first proxy hop," which matches how Render's routing works.
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_ME_DEV_SECRET';
+// ✅ SEC-009 fix: previously fell back to a hardcoded 'CHANGE_ME_DEV_SECRET'
+// string if JWT_SECRET was unset, which would let anyone who has read the
+// source code forge valid JWTs (including admin ones) against any
+// deployment that forgot to set the env var. Fail fast instead.
+if (!process.env.JWT_SECRET) {
+  console.error('❌ JWT_SECRET is not set. Refusing to start with an insecure default — set JWT_SECRET in your .env.');
+  process.exit(1);
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+// ✅ SEC-004 fix: cookies are only marked Secure (HTTPS-only) in production,
+// so local HTTP development still works, but any production deployment
+// (Render sets NODE_ENV=production) gets the Secure flag automatically
+// instead of a hardcoded `false`.
+const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 
 // Shared, reasonably strict email check used by both login and registration.
 // Client-side validation is easy to bypass (dev tools, direct API calls), so
@@ -50,18 +75,40 @@ const QR_SIGNING_SECRET = process.env.QR_SIGNING_SECRET || JWT_SECRET;
 fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
 fs.mkdirSync(path.join(__dirname, 'public', 'uploads'), { recursive: true });
 
+// ✅ SEC-021 fix (Part 6): previously no `fileFilter` at all — multer accepted
+// any file type/extension for the UPI QR upload, and the result is written to
+// `public/uploads/` and served by `express.static` using the *original*
+// filename's extension (see the `filename` callback below). That let an
+// organizer (the only role that can reach this endpoint) upload a `.html` or
+// `.svg` file that would be served same-origin with its native content-type
+// — a stored-XSS vector against anyone who opens that URL, since our own CSP
+// still allows inline scripts (see SECURITY_AUDIT.md SEC-023). Restrict to
+// actual image types the UPI QR flow needs, and re-derive the stored
+// extension from the verified mimetype rather than trusting the client-
+// supplied filename's extension.
+const ALLOWED_UPLOAD_MIME_TO_EXT = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp'
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, path.join(__dirname, 'public', 'uploads'));
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    const ext = ALLOWED_UPLOAD_MIME_TO_EXT[file.mimetype] || '.bin';
+    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
   }
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_UPLOAD_MIME_TO_EXT[file.mimetype]) return cb(null, true);
+    cb(new Error('Only PNG, JPEG, or WebP images are allowed for the UPI QR code.'));
+  }
 });
 
 function generateQrCode(ticketUuid, eventUuid, userId) {
@@ -268,7 +315,33 @@ app.use(helmet({
   }
 }));
 
-app.use(cors({ origin: true, credentials: true }));
+// ✅ SEC-022 fix (Part 6): `origin: true` reflects whatever Origin header the
+// request sends and marks it trusted — combined with `credentials: true`,
+// that tells browsers it's fine for *any* website to make credentialed
+// requests to this API. In this deployment the frontend and API are served
+// from the same Express app/origin, so cross-origin credentialed access is
+// never actually needed; practical exploitation is further limited today by
+// auth being cookie-only with `sameSite: 'lax'` (see COOKIE_SECURE above),
+// which already blocks the cookie from riding along on cross-site
+// fetch/XHR. But that's incidental, not load-bearing — CORS itself should
+// still default to same-origin only, so this doesn't silently become
+// exploitable if auth ever changes (e.g. a token read from JS). Requests
+// with no Origin header (curl, server-to-server, same-origin fetches) are
+// always allowed by the `cors` package regardless of this callback. Set
+// ALLOWED_ORIGINS (comma-separated) in .env for any legitimate additional
+// frontend origin.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
@@ -303,6 +376,49 @@ const authLimiter = rateLimit({
 });
 app.use(['/api/auth/login', '/api/auth/register', '/api/auth/register-organizer'], authLimiter);
 
+// ✅ SEC-024 fix (Part 7): the chatbot endpoint is unauthenticated and, when
+// OPENAI_API_KEY is set, each call forwards to a paid third-party LLM API.
+// Previously it was covered only by the generalLimiter (3000 req/15min per
+// IP, deliberately generous for normal page/API traffic) — meaning a single
+// anonymous visitor could script thousands of OpenAI calls per window at the
+// operator's expense (a cost-based DoS), with no dedicated ceiling for this
+// specific expensive, unauthenticated action.
+const chatbotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many chatbot requests. Please wait a few minutes and try again.' }
+});
+app.use('/api/chatbot', chatbotLimiter);
+
+// ✅ SEC-025 fix (Part 7): event registration places a seat hold immediately
+// (payment is submitted afterward), and was previously covered only by the
+// generalLimiter. A single authenticated account — or a small number of
+// throwaway accounts, which registration does not otherwise limit — could
+// script rapid repeated registrations against a popular event to hold/consume
+// every remaining seat, denying real students a chance to register even
+// though the attacker never intends to pay (the 5-minute hold-expiry logic
+// mitigates this but doesn't prevent it: the attacker can simply re-run the
+// script). A dedicated limiter slows this "seat-squatting" abuse pattern
+// without affecting a normal student registering once or twice.
+const registrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many registration attempts. Please wait a few minutes and try again.' }
+});
+app.use('/api/events/:uuid/register', registrationLimiter);
+
+// ✅ SEC-025 fix (Part 7): payment-proof submission is ownership-checked
+// (SEC-014, Part 4) so it can't be used to attack another user's ticket, but
+// was likewise only covered by the generalLimiter. Give it the same
+// dedicated ceiling so a compromised/scripted account can't flood an
+// organizer's payment-review queue with garbage transaction IDs by
+// repeatedly resubmitting proof for a rejected ticket.
+app.use('/api/payments/proof', registrationLimiter);
+
 // ✅ ALL API ROUTES FIRST (before static)
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
@@ -326,7 +442,7 @@ app.post('/api/auth/login', (req, res) => {
     }
     const user = { id: row.id, role: row.role, name: row.name, email: row.email };
     const token = jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: false });
+    res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE });
     res.json({ user, token: token.slice(0, 20) + '...' });
   });
 });
@@ -346,7 +462,7 @@ app.post('/api/auth/register', (req, res) => {
         if (err) return res.status(500).json({ error: 'Registration failed' });
         const user = { id: this.lastID, role: 'student', name: name || email.split('@')[0] };
         const token = jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
-        res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: false });
+        res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE });
         res.json({ user, token: token.slice(0, 20) + '...' });
       });
   });
@@ -391,7 +507,7 @@ app.get('/api/admin/organizer-applications', authRequired, requireAdmin, (req, r
     `SELECT id, uuid, name, email, mobile, roll_number, organizer_status, organizer_reason, created_at
      FROM users WHERE organizer_status = 'pending' ORDER BY created_at ASC`,
     (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return sendDbError(res, err);
       res.json({ applications: rows });
     }
   );
@@ -402,7 +518,7 @@ app.post('/api/admin/organizer-applications/:id/approve', authRequired, requireA
     `UPDATE users SET role = 'committee', organizer_status = 'approved' WHERE id = ? AND organizer_status = 'pending'`,
     [req.params.id],
     function (err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return sendDbError(res, err);
       if (this.changes === 0) return res.status(404).json({ error: 'Application not found or already processed' });
       res.json({ ok: true });
     }
@@ -414,7 +530,7 @@ app.post('/api/admin/organizer-applications/:id/reject', authRequired, requireAd
     `UPDATE users SET organizer_status = 'rejected' WHERE id = ? AND organizer_status = 'pending'`,
     [req.params.id],
     function (err) {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return sendDbError(res, err);
       if (this.changes === 0) return res.status(404).json({ error: 'Application not found or already processed' });
       res.json({ ok: true });
     }
@@ -444,7 +560,7 @@ function startGoogleOAuth(req, res) {
     return res.redirect('/login.html?error=google_not_configured');
   }
   const state = crypto.randomBytes(16).toString('hex');
-  res.cookie('google_oauth_state', state, { httpOnly: true, sameSite: 'lax', secure: false, maxAge: 10 * 60 * 1000 });
+  res.cookie('google_oauth_state', state, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE, maxAge: 10 * 60 * 1000 });
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
@@ -506,6 +622,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
     if (!profile.email) {
       return res.redirect('/login.html?error=google_auth_failed');
     }
+    // ✅ SEC-008 fix: Google's userinfo response includes email_verified —
+    // previously unused. Without this check, an unverified email would be
+    // trusted for account matching/linking/creation just like a verified
+    // one, which is an account-linking best-practice gap (CWE-287-adjacent):
+    // linking should only ever happen onto an email Google has actually
+    // confirmed the person controls. Only an *explicit* `false` blocks the
+    // flow (not merely a missing field), matching Google's real behavior of
+    // always including this field for this scope.
+    if (profile.email_verified === false) {
+      return res.redirect('/login.html?error=google_email_unverified');
+    }
 
     db.get('SELECT * FROM users WHERE email = ? OR google_id = ?', [profile.email, profile.sub], (err, existing) => {
       if (err) return res.redirect('/login.html?error=google_auth_failed');
@@ -513,7 +640,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
       const signInAndRedirect = (row) => {
         const user = { id: row.id, role: row.role, name: row.name, email: row.email };
         const token = jwt.sign(user, JWT_SECRET, { expiresIn: '7d' });
-        res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: false });
+        res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE });
         res.redirect((row.role === 'committee' || row.role === 'admin') ? '/dashboard.html' : '/');
       };
 
@@ -625,9 +752,18 @@ app.get('/api/events', (req, res) => {
 
   expireStaleHolds(() => {
   // ✅ FIX: hide events that have already ended (end_time, or start_time+24h if no end_time)
+  // ✅ SEC-027 fix (Part 8): this list previously selected the internal
+  // auto-increment `id` alongside the public `uuid`, exposing every visible
+  // event's raw database row number to any unauthenticated visitor (and
+  // trivially letting them infer event count/creation order by diffing
+  // consecutive IDs). SEC-017 (Part 5) already fixed this same pattern on
+  // the single-event detail endpoint but missed this list endpoint, which
+  // shares the same root cause. The frontend never reads `event.id` from
+  // this response (only `event.uuid`), so it's dropped entirely rather than
+  // kept for a consumer that doesn't exist.
   let query = `
     SELECT 
-      id, uuid, title, description, category, start_time, end_time,
+      uuid, title, description, category, start_time, end_time,
       location, capacity, price_cents, price_single_cents, price_duo_cents,
       price_trio_cents, allowed_tiers, status,
       (SELECT COUNT(*) FROM tickets t WHERE t.event_id = events.id AND t.payment_status != 'expired') AS registrations
@@ -652,7 +788,7 @@ app.get('/api/events', (req, res) => {
   params.push(Math.min(Number(limit) || 50, 100));
 
   db.all(query, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) return sendDbError(res, err);
     res.json({ events: rows });
   });
   });
@@ -663,14 +799,18 @@ app.get('/api/events/:uuid', (req, res) => {
   expireStaleHolds(() => {
   db.get(
     `
-    SELECT e.*,
+    SELECT
+      e.uuid, e.title, e.description, e.category, e.start_time, e.end_time,
+      e.location, e.capacity, e.currency, e.price_cents, e.price_single_cents,
+      e.price_duo_cents, e.price_trio_cents, e.allowed_tiers, e.status,
+      e.discounts_enabled,
       (SELECT COUNT(*) FROM tickets t WHERE t.event_id = e.id AND t.payment_status != 'expired') AS sold
     FROM events e
     WHERE e.uuid = ? AND e.visibility = 'public'
     `,
     [uuid],
     (err, event) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return sendDbError(res, err);
       if (!event) return res.status(404).json({ error: 'Event not found' });
 
       event.remaining = event.capacity
@@ -768,6 +908,15 @@ app.post('/api/events', authRequired, requireOrganizer, (req, res) => {
   if (!category || !EVENT_CATEGORIES.includes(category)) {
     return res.status(400).json({ error: `Category is required and must be one of: ${EVENT_CATEGORIES.join(', ')}` });
   }
+  // ✅ SEC-002 fix: reject negative capacity/price values instead of silently
+  // storing them (a negative capacity previously made every registration
+  // request see "held >= capacity" as permanently true, locking the
+  // organizer out of their own event).
+  for (const [field, val] of Object.entries({ capacity, price_cents, price_single_cents, price_duo_cents, price_trio_cents })) {
+    if (val !== undefined && val !== null && val !== '' && Number(val) < 0) {
+      return res.status(400).json({ error: `${field} cannot be negative` });
+    }
+  }
 
   createUniqueEventUuid((err, eventUuid) => {
     if (err) return res.status(500).json({ error: 'Failed to generate event ID' });
@@ -844,12 +993,22 @@ app.post('/api/events/:uuid/register', authRequired, (req, res) => {
   if (!participants || !Array.isArray(participants) || participants.length === 0) {
     return res.status(400).json({ error: 'Participants required' });
   }
+  // ✅ SEC-003 fix: cap participant count (tier max is 3, for "trio") and
+  // require each entry to carry a real name, instead of accepting an
+  // unbounded array of arbitrary-shaped objects into participants_json.
+  const MAX_PARTICIPANTS = 3;
+  if (participants.length > MAX_PARTICIPANTS) {
+    return res.status(400).json({ error: `A maximum of ${MAX_PARTICIPANTS} participants is allowed` });
+  }
+  if (!participants.every(p => p && typeof p.name === 'string' && p.name.trim().length > 0 && p.name.length <= 200)) {
+    return res.status(400).json({ error: 'Each participant needs a valid name' });
+  }
 
   // Release any seats whose 5-minute payment window has lapsed before we
   // even look at capacity, so an abandoned registration never blocks a new one.
   expireStaleHolds(() => {
   db.get('SELECT * FROM events WHERE uuid = ?', [uuid], (err, event) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) return sendDbError(res, err);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
     const proceedWithCapacityCheck = (cb) => {
@@ -863,7 +1022,7 @@ app.post('/api/events/:uuid/register', authRequired, (req, res) => {
            )`,
         [event.id, dayjs().toISOString()],
         (capErr, row) => {
-          if (capErr) return res.status(500).json({ error: capErr.message });
+          if (capErr) return sendDbError(res, capErr);
           if ((row?.held || 0) >= event.capacity) {
             return res.status(409).json({ error: 'Sorry, this event is fully booked. No seats remaining.' });
           }
@@ -872,9 +1031,23 @@ app.post('/api/events/:uuid/register', authRequired, (req, res) => {
       );
     };
 
-    // Determine base price
-    let basePriceCents = 0;
+    // ✅ SEC-001 fix: `type` MUST be one of the three known tiers, and MUST be
+    // a tier the organizer actually enabled for this event (event.allowed_tiers).
+    // Previously an unrecognized ticket_type silently fell through to a base
+    // price of 0, which meant needsPayment became false and the caller got a
+    // fully paid, scannable ticket for free by sending any unexpected string.
+    // Both checks below now reject the request instead of defaulting to free.
+    const VALID_TIERS = ['single', 'duo', 'trio'];
     const type = (ticket_type || 'single').toLowerCase();
+    if (!VALID_TIERS.includes(type)) {
+      return res.status(400).json({ error: `Invalid ticket_type. Must be one of: ${VALID_TIERS.join(', ')}` });
+    }
+    const allowedTiers = (event.allowed_tiers || 'single').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (!allowedTiers.includes(type)) {
+      return res.status(400).json({ error: `This event does not offer the "${type}" ticket tier.` });
+    }
+
+    let basePriceCents = 0;
     if (type === 'single') {
       basePriceCents = event.price_single_cents ?? event.price_cents ?? 0;
     } else if (type === 'duo') {
@@ -892,45 +1065,86 @@ app.post('/api/events/:uuid/register', authRequired, (req, res) => {
       const holdExpiresAt = needsPayment ? dayjs().add(HOLD_MINUTES, 'minute').toISOString() : null;
 
       const registerTicket = (qrCodeUrl) => {
-        db.run(
-          `INSERT INTO tickets (
-            uuid, user_id, event_id, participants_json, created_at, 
-            payment_status, discount_code, amount_due_cents, price_paid_cents, group_type, qr_code, hold_expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            ticketUuid,
-            req.user.id,
-            event.id,
-            JSON.stringify(participants),
-            dayjs().toISOString(),
-            paymentStatus,
-            discount_code || null,
-            finalPriceCents,
-            needsPayment ? 0 : finalPriceCents,
-            type,
-            qrCodeUrl || null,
-            holdExpiresAt
-          ],
-          function (err) {
-            if (err) {
-              console.error(err);
-              return res.status(500).json({ error: 'Registration failed' });
-            }
+        const insertParams = [
+          ticketUuid,
+          req.user.id,
+          event.id,
+          JSON.stringify(participants),
+          dayjs().toISOString(),
+          paymentStatus,
+          discount_code || null,
+          finalPriceCents,
+          needsPayment ? 0 : finalPriceCents,
+          type,
+          qrCodeUrl || null,
+          holdExpiresAt
+        ];
 
-            if (needsPayment) {
-              res.json({
-                requires_payment: true,
-                ticket_uuid: ticketUuid,
-                hold_expires_at: holdExpiresAt
-              });
-            } else {
-              res.json({
-                ok: true,
-                ticket: { uuid: ticketUuid }
-              });
-            }
+        const onInserted = function (err) {
+          if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Registration failed' });
           }
-        );
+          // ✅ SEC-013 fix: when the event has a capacity, the insert below is
+          // conditional (see the WHERE-guarded SQL) and writes 0 rows if the
+          // seat is no longer available. `proceedWithCapacityCheck` above is
+          // only a fast-path pre-check for a nice error message early — it is
+          // NOT what prevents overbooking, because a second concurrent
+          // request's SELECT can run before the first request's INSERT lands
+          // (a classic check-then-act race). The real guarantee comes from
+          // re-checking capacity inside the same atomic INSERT statement that
+          // writes the row, so two simultaneous "last seat" registrations
+          // can't both succeed.
+          if (event.capacity && this.changes === 0) {
+            return res.status(409).json({ error: 'Sorry, this event is fully booked. No seats remaining.' });
+          }
+
+          if (needsPayment) {
+            res.json({
+              requires_payment: true,
+              ticket_uuid: ticketUuid,
+              hold_expires_at: holdExpiresAt
+            });
+          } else {
+            res.json({
+              ok: true,
+              ticket: { uuid: ticketUuid }
+            });
+          }
+        };
+
+        if (event.capacity) {
+          // Atomic capacity-safe insert: the seat count is re-checked inside
+          // the same statement that performs the write, closing the race
+          // window between `proceedWithCapacityCheck`'s earlier SELECT and
+          // this INSERT (SEC-013).
+          db.run(
+            `INSERT INTO tickets (
+              uuid, user_id, event_id, participants_json, created_at,
+              payment_status, discount_code, amount_due_cents, price_paid_cents, group_type, qr_code, hold_expires_at
+            )
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            WHERE (
+              SELECT COUNT(*) FROM tickets
+              WHERE event_id = ?
+                AND (
+                  payment_status IN ('paid', 'verified', 'pending', 'rejected')
+                  OR (payment_status = 'unpaid' AND (hold_expires_at IS NULL OR hold_expires_at > ?))
+                )
+            ) < ?`,
+            [...insertParams, event.id, dayjs().toISOString(), event.capacity],
+            onInserted
+          );
+        } else {
+          db.run(
+            `INSERT INTO tickets (
+              uuid, user_id, event_id, participants_json, created_at, 
+              payment_status, discount_code, amount_due_cents, price_paid_cents, group_type, qr_code, hold_expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            insertParams,
+            onInserted
+          );
+        }
       };
 
       if (!needsPayment) {
@@ -955,17 +1169,42 @@ app.post('/api/events/:uuid/register', authRequired, (req, res) => {
           'SELECT * FROM discounts WHERE code = ? AND event_id = ? AND active = 1',
           [String(discount_code).trim().toUpperCase(), event.id],
           (err, discount) => {
-            let finalPrice = basePriceCents;
-            if (discount && (discount.max_uses === null || discount.used_count < discount.max_uses)) {
-              if (discount.percentage) {
-                finalPrice = Math.round(basePriceCents * (1 - discount.percentage / 100));
-              } else if (discount.amount_cents) {
-                finalPrice = Math.max(0, basePriceCents - discount.amount_cents);
+            if (!discount) return checkDiscountAndRegister(basePriceCents);
+
+            // ✅ SEC-015 fix: previously this read `used_count`, decided in JS
+            // whether the discount still had uses left, and only THEN issued a
+            // separate increment — a check-then-act race where two concurrent
+            // registrations using the last remaining use could both read
+            // "uses left" as true and both succeed, overrunning `max_uses`.
+            // The increment is now the same statement as the limit check:
+            // the WHERE clause re-verifies `used_count < max_uses` atomically
+            // as part of the UPDATE itself, so at most one of two simultaneous
+            // requests can consume the final use.
+            db.run(
+              `UPDATE discounts SET used_count = used_count + 1
+               WHERE id = ? AND (max_uses IS NULL OR used_count < max_uses)`,
+              [discount.id],
+              function (updErr) {
+                if (updErr) {
+                  console.error(updErr);
+                  // Fail closed on the discount (not on the registration) —
+                  // proceed at full price rather than blocking the request.
+                  return checkDiscountAndRegister(basePriceCents);
+                }
+                if (this.changes === 0) {
+                  // Exhausted (possibly by a concurrent request that won the
+                  // race) — proceed at full price instead of honoring it.
+                  return checkDiscountAndRegister(basePriceCents);
+                }
+                let finalPrice = basePriceCents;
+                if (discount.percentage) {
+                  finalPrice = Math.round(basePriceCents * (1 - discount.percentage / 100));
+                } else if (discount.amount_cents) {
+                  finalPrice = Math.max(0, basePriceCents - discount.amount_cents);
+                }
+                checkDiscountAndRegister(finalPrice);
               }
-              // Increment discount count
-              db.run('UPDATE discounts SET used_count = used_count + 1 WHERE id = ?', [discount.id]);
-            }
-            checkDiscountAndRegister(finalPrice);
+            );
           }
         );
       } else {
@@ -999,6 +1238,12 @@ app.put('/api/events/:uuid', authRequired, requireOrganizer, (req, res) => {
     if (!location) return res.status(400).json({ error: 'Location is required' });
     if (!category || !EVENT_CATEGORIES.includes(category)) {
       return res.status(400).json({ error: `Category must be one of: ${EVENT_CATEGORIES.join(', ')}` });
+    }
+    // ✅ SEC-002 fix: same negative-value rejection as event creation.
+    for (const [field, val] of Object.entries({ capacity, price_single_cents, price_duo_cents, price_trio_cents })) {
+      if (val !== undefined && val !== null && val !== '' && Number(val) < 0) {
+        return res.status(400).json({ error: `${field} cannot be negative` });
+      }
     }
 
     db.run(
@@ -1223,7 +1468,7 @@ app.get('/api/events/:uuid/payment-setup', (req, res) => {
      FROM events WHERE uuid = ?`,
     [uuid],
     (err, event) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return sendDbError(res, err);
       if (!event) return res.status(404).json({ error: 'Event not found' });
       res.json({ payment: event });
     }
@@ -1275,25 +1520,53 @@ app.post('/api/payments/proof', authRequired, (req, res) => {
     return res.status(400).json({ error: 'Ticket UUID and Transaction ID / UTR Number are required' });
   }
 
-  db.get('SELECT id, user_id FROM tickets WHERE uuid = ?', [ticket_uuid], (err, ticket) => {
+  // ✅ SEC-014 fix: expire stale holds first so a ticket whose 5-minute
+  // window has already lapsed is seen as 'expired' (not stale 'unpaid')
+  // by the check just below, rather than by some later background sweep.
+  expireStaleHolds(() => {
+  db.get('SELECT id, user_id, payment_status FROM tickets WHERE uuid = ?', [ticket_uuid], (err, ticket) => {
     if (err || !ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.user_id !== req.user.id) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
+    // ✅ SEC-014 fix: previously this endpoint updated payment_status to
+    // 'pending' unconditionally, regardless of the ticket's current status.
+    // That let a caller resurrect a seat hold whose 5-minute window had
+    // already expired — moving it from 'expired' back to 'pending' long
+    // after the seat had been counted as free again (and possibly already
+    // re-sold to someone else), directly undermining the hold-expiry system
+    // that exists to prevent overbooking. It also let a decided ticket
+    // ('paid'/'verified') or one already under review ('pending') be
+    // silently reset. Only a ticket that is still genuinely awaiting its
+    // first payment attempt, or was rejected and is being retried, may
+    // submit/resubmit proof.
+    if (!['unpaid', 'rejected'].includes(ticket.payment_status)) {
+      const reason = ticket.payment_status === 'expired'
+        ? 'This registration\'s payment window has expired. Please register again.'
+        : 'This ticket is not awaiting payment proof.';
+      return res.status(409).json({ error: reason });
+    }
+
     db.run(
       `UPDATE tickets 
        SET payment_status = 'pending', proof_txn_id = ?, proof_submitted_at = ? 
-       WHERE id = ?`,
+       WHERE id = ? AND payment_status IN ('unpaid', 'rejected')`,
       [txn_id, dayjs().toISOString(), ticket.id],
       function(err) {
         if (err) {
           console.error(err);
           return res.status(500).json({ error: 'Failed to submit payment proof' });
         }
+        // Belt-and-suspenders: if another request changed the status between
+        // the check above and this write, `changes` will be 0.
+        if (this.changes === 0) {
+          return res.status(409).json({ error: 'This ticket is not awaiting payment proof.' });
+        }
         res.json({ ok: true });
       }
     );
+  });
   });
 });
 
@@ -1433,7 +1706,7 @@ app.get('/api/analytics/events/:uuid', authRequired, requireOrganizer, (req, res
        WHERE event_id = ?`,
       [event.id],
       (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendDbError(res, err);
         res.json({
           metrics: {
             totalRegistrations: row.total || 0,
@@ -1482,7 +1755,7 @@ app.post('/api/attendance/scan', authRequired, requireOrganizer, (req, res) => {
      WHERE t.uuid = ?`,
     [ticket_uuid],
     (err, ticket) => {
-      if (err) return res.status(500).json({ error: err.message });
+      if (err) return sendDbError(res, err);
       if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
       if (req.user.role !== 'admin' && ticket.event_owner_id !== req.user.id) {
         return res.status(403).json({ error: 'This ticket belongs to a different organizer\'s event' });
@@ -1530,7 +1803,7 @@ app.post('/api/attendance/manual-by-ticket', authRequired, requireOrganizer, (re
   }
 
   db.get('SELECT id, created_by, title FROM events WHERE uuid = ?', [event_uuid], (err, event) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) return sendDbError(res, err);
     if (!event) return res.status(404).json({ error: 'No event found for that Event ID' });
     if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
       return res.status(403).json({ error: 'You are not the organizer of this event' });
@@ -1543,7 +1816,7 @@ app.post('/api/attendance/manual-by-ticket', authRequired, requireOrganizer, (re
        WHERE t.event_id = ? AND t.id = ?`,
       [event.id, ticket_number],
       (err, ticket) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) return sendDbError(res, err);
         if (!ticket) return res.status(404).json({ error: `Ticket #${String(ticket_number).padStart(4, '0')} not found for "${event.title}"` });
         if (ticket.payment_status !== 'paid') {
           return res.status(400).json({ error: 'This ticket has not been paid/verified yet' });
@@ -1580,19 +1853,32 @@ app.post('/api/attendance/manual', authRequired, requireOrganizer, (req, res) =>
     return res.status(400).json({ error: 'Event ID and User ID are required' });
   }
 
-  db.serialize(() => {
-    db.run(
-      `INSERT INTO attendance (event_id, user_id, present, timestamp, source)
-       VALUES (?, ?, ?, ?, 'manual')`,
-      [event_id, user_id, present ? 1 : 0, dayjs().toISOString()]
-    );
-    db.run(
-      `UPDATE tickets SET checked_in = ? WHERE event_id = ? AND user_id = ?`,
-      [present ? 1 : 0, event_id, user_id]
-    );
-  });
+  // ✅ SEC-010 fix: this handler previously trusted event_id with no
+  // ownership check at all, letting any organizer mark attendance on any
+  // other organizer's event. Load the event first and verify ownership,
+  // matching the pattern already used by manual-by-ticket and
+  // attendance/scan.
+  db.get('SELECT id, created_by FROM events WHERE id = ?', [event_id], (err, event) => {
+    if (err) return sendDbError(res, err);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the organizer of this event' });
+    }
 
-  res.json({ ok: true });
+    db.serialize(() => {
+      db.run(
+        `INSERT INTO attendance (event_id, user_id, present, timestamp, source)
+         VALUES (?, ?, ?, ?, 'manual')`,
+        [event_id, user_id, present ? 1 : 0, dayjs().toISOString()]
+      );
+      db.run(
+        `UPDATE tickets SET checked_in = ? WHERE event_id = ? AND user_id = ?`,
+        [present ? 1 : 0, event_id, user_id]
+      );
+    });
+
+    res.json({ ok: true });
+  });
 });
 
 // ===============================
@@ -1601,16 +1887,26 @@ app.post('/api/attendance/manual', authRequired, requireOrganizer, (req, res) =>
 app.get('/api/attendance/:eventId/export', authRequired, requireOrganizer, (req, res) => {
   const { eventId } = req.params;
 
-  db.all(
-    `SELECT user_id, present, timestamp, source 
-     FROM attendance 
-     WHERE event_id = ?`,
-    [eventId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ attendance: rows });
+  // ✅ SEC-011 fix: same missing-ownership pattern as SEC-010 — previously
+  // any organizer could export any other organizer's attendee list.
+  db.get('SELECT id, created_by FROM events WHERE id = ?', [eventId], (err, event) => {
+    if (err) return sendDbError(res, err);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the organizer of this event' });
     }
-  );
+
+    db.all(
+      `SELECT user_id, present, timestamp, source 
+       FROM attendance 
+       WHERE event_id = ?`,
+      [eventId],
+      (err2, rows) => {
+        if (err2) return sendDbError(res, err2);
+        res.json({ attendance: rows });
+      }
+    );
+  });
 });
 
 // ===============================
@@ -1624,20 +1920,32 @@ app.post('/api/attendance/:eventId/import', authRequired, requireOrganizer, (req
     return res.status(400).json({ error: 'Attendance array required' });
   }
 
-  const stmt = db.prepare(
-    `INSERT INTO attendance (event_id, user_id, present, timestamp, source) 
-     VALUES (?, ?, ?, ?, ?)`
-  );
+  // ✅ SEC-012 fix: this was the most serious of the three — no ownership
+  // check on a DESTRUCTIVE route (delete-then-replace). Any organizer could
+  // wipe and overwrite another organizer's entire attendance history for
+  // their event. Ownership is now verified before the delete/import runs.
+  db.get('SELECT id, created_by FROM events WHERE id = ?', [eventId], (err, event) => {
+    if (err) return sendDbError(res, err);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (req.user.role !== 'admin' && event.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'You are not the organizer of this event' });
+    }
 
-  db.serialize(() => {
-    db.run('DELETE FROM attendance WHERE event_id = ?', [eventId]);
-    attendance.forEach(item => {
-      stmt.run(eventId, item.user_id, item.present || 0, item.timestamp || dayjs().toISOString(), item.source || 'import');
+    const stmt = db.prepare(
+      `INSERT INTO attendance (event_id, user_id, present, timestamp, source) 
+       VALUES (?, ?, ?, ?, ?)`
+    );
+
+    db.serialize(() => {
+      db.run('DELETE FROM attendance WHERE event_id = ?', [eventId]);
+      attendance.forEach(item => {
+        stmt.run(eventId, item.user_id, item.present || 0, item.timestamp || dayjs().toISOString(), item.source || 'import');
+      });
+      stmt.finalize();
     });
-    stmt.finalize();
-  });
 
-  res.json({ ok: true });
+    res.json({ ok: true });
+  });
 });
 // ===============================
 // MY TICKETS (Logged-in user)
@@ -1749,6 +2057,41 @@ app.get('*', (req, res) => {
       </script>
     `);
   }
+});
+
+// ✅ SEC-018 fix: there was previously no error-handling middleware at all,
+// so any unhandled error fell through to Express's *default* error handler.
+// That default handler renders a full stack trace as HTML whenever
+// NODE_ENV isn't exactly 'production' — and the easiest way to hit it
+// turns out to need no auth at all: sending a malformed JSON body to
+// *any* endpoint (e.g. a POST with a truncated `{...` body) makes
+// body-parser throw a SyntaxError, which Express then rendered as HTML
+// containing absolute filesystem paths and the internal body-parser /
+// raw-body call chain (CWE-209, information exposure through an error
+// message). This is real internal detail disclosure reachable pre-auth,
+// and shouldn't depend entirely on an environment variable being set
+// correctly in every deployment target. This handler must be registered
+// last (Express only routes to a 4-argument middleware on error) and
+// always logs the full error server-side while returning a generic,
+// safe JSON error to the client.
+app.use((err, req, res, next) => {
+  console.error('[Unhandled error]', err && err.stack ? err.stack : err);
+  if (res.headersSent) return next(err);
+  const isMalformedBody = (err && err.type === 'entity.parse.failed') || err instanceof SyntaxError;
+  // ✅ SEC-021 fix (Part 6): surface multer's upload-validation errors (bad
+  // file type from fileFilter, file too large) as a real 400 with a safe,
+  // specific message instead of falling through to the generic 500 below —
+  // these are ordinary client input errors, not server faults, and the
+  // messages here are static strings we wrote ourselves (never raw
+  // filesystem/driver detail), so returning them is safe.
+  const isUploadError = err && (err.name === 'MulterError' || /PNG, JPEG, or WebP/.test(err.message || ''));
+  const status = isMalformedBody ? 400 : isUploadError ? 400 : (err && Number.isInteger(err.status) ? err.status : 500);
+  const message = isMalformedBody
+    ? 'Malformed request body'
+    : isUploadError
+      ? (err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 5MB).' : (err.message || 'Invalid file upload.'))
+      : 'Internal server error';
+  res.status(status).json({ error: message });
 });
 
 app.listen(PORT, () => {

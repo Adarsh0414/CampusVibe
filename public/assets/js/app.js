@@ -23,7 +23,7 @@ async function setAuthNav() {
     if (!nav) return;
     nav.innerHTML = `
       <a href="/my-tickets.html" class="nav-link">My Tickets</a>
-      <a href="/profile.html" class="nav-link">${user.name || 'Profile'}</a>
+      <a href="/profile.html" class="nav-link">${escapeHtml(user.name || 'Profile')}</a>
       <a href="/dashboard.html" class="nav-link">Organizer</a>
       <a href="#" id="logoutTop" class="nav-link">Logout</a>
     `;
@@ -59,12 +59,14 @@ async function loadEvents() {
     const d = document.createElement('div');
     d.className = 'card appear';
     d.style.animationDelay = `${i * 40}ms`;
+    const shortDesc = (e.description || '').slice(0, 120);
+    const ellipsis = (e.description || '').length > 120 ? '...' : '';
     d.innerHTML = `
-      <h3>${e.title}</h3>
-      <div class="muted">${new Date(e.start_time).toLocaleString()} • ${e.location || ''}</div>
-      <p>${(e.description || '').slice(0, 120)}${(e.description || '').length > 120 ? '...' : ''}</p>
+      <h3>${escapeHtml(e.title)}</h3>
+      <div class="muted">${escapeHtml(new Date(e.start_time).toLocaleString())} • ${escapeHtml(e.location || '')}</div>
+      <p>${escapeHtml(shortDesc)}${ellipsis}</p>
       <div class="flex">
-        <a class="btn outline" href="/event.html?e=${e.uuid}">View</a>
+        <a class="btn outline" href="/event.html?e=${encodeURIComponent(e.uuid)}">View</a>
       </div>
     `;
     root.appendChild(d);
@@ -76,6 +78,16 @@ function bindFilters() {
   const c = document.getElementById('category');
   if (q) q.addEventListener('input', debounce(loadEvents, 300));
   if (c) c.addEventListener('change', loadEvents);
+}
+
+// ✅ SEC fix (flagged in security audit Part 1, fixed here): escapes any
+// string before it's interpolated into innerHTML, so organizer-controlled
+// event fields (title/description/location) can't inject markup/scripts
+// into every visitor's page.
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
 }
 
 function debounce(fn, ms) {

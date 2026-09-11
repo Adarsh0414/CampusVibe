@@ -29,6 +29,18 @@
   <meta name="twitter:description" content="Manage your campus events, registrations, and attendance from your CampusVibe organizer dashboard." />
   <meta name="twitter:image" content="https://campusvibe-pu3g.onrender.com/assets/img/icon-512.png" />
 
+  <!-- Item 4 (Part 16): Space Grotesk was previously loaded via an
+       @import inside styles.css placed after other rules — invalid
+       per the CSS spec (an @import must precede all other rules), so
+       browsers silently ignored it and the custom display font never
+       actually loaded. Moved to a real <link>, discoverable by the
+       preload scanner in parallel with styles.css instead of only
+       after it finishes downloading and parsing; preconnect warms the
+       cross-origin connection early. display=swap (kept from the
+       original URL) means body text never waits invisibly on it. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
   <style>
     .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; color: white; font-weight: 500; }
@@ -58,15 +70,17 @@
     .event-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .gate-card { max-width: 460px; margin: 60px auto; text-align: center; }
   </style>
-  <script src="/assets/js/lottie.min.js"></script>
+  <script src="/assets/js/lottie.min.js" defer></script>
   <script src="/assets/i18n/i18n-data.js"></script>
   <script src="/assets/js/i18n.js"></script>
+  <script src="/assets/js/loading.js"></script>
 </head>
 <body>
+  <a href="#mainArea" class="skip-link">Skip to main content</a>
   <header class="cv-header">
     <div class="container header-inner">
       <a href="/" class="brand" style="text-decoration:none;color:inherit">
-        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <img src="/assets/img/logo.svg" class="logo" alt="" />
         <div class="brand-text">
           <h1>CampusVibe</h1>
           <p class="tagline">Organizer Console</p>
@@ -82,11 +96,28 @@
     </div>
   </header>
 
-  <main class="container" style="padding:24px 0;" id="mainArea">
-    <!-- Content is injected after the auth/role gate check below -->
+  <main tabindex="-1" class="container" style="padding:24px 0;" id="mainArea">
+    <!-- Initial page-level skeleton: shown until the auth/role gate check
+         below resolves, so the console never renders as a blank container
+         on first load — replaced by renderDashboard()/the gate markup. -->
+    <div id="lottie-dash" style="height:120px; opacity:.5; margin-bottom:8px;"></div>
+    <div class="row" style="margin-bottom:20px;" aria-hidden="true" aria-busy="true">
+      <div class="skel-stat-card" style="flex:1;"><span class="skel skel-text sm"></span><span class="skel skel-text lg" style="width:40%;height:28px;"></span></div>
+    </div>
+    <div class="section-tabs" aria-hidden="true">
+      <span class="skel skel-btn" style="width:140px;"></span>
+      <span class="skel skel-btn" style="width:110px;"></span>
+      <span class="skel skel-btn" style="width:150px;"></span>
+    </div>
+    <div class="skel-card" aria-hidden="true" style="margin-top:16px;">
+      <span class="skel skel-text lg" style="width:30%;"></span>
+      <span class="skel skel-text"></span>
+      <span class="skel skel-text"></span>
+      <span class="skel skel-text" style="width:60%;"></span>
+    </div>
   </main>
 
-  <div id="toast"></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <script>
     const els = {};
@@ -104,13 +135,26 @@
     }
 
     function withLoading(btn, fn) {
+      // Guards against duplicate submissions (button is disabled for the
+      // whole in-flight window) and — as of this pass — against a network
+      // failure/timeout inside fn() being silently swallowed: previously an
+      // uncaught rejection here just reset the button with zero feedback,
+      // making a dropped connection look identical to "nothing happened."
+      if (btn.disabled) return Promise.resolve();
       const originalHTML = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Loading...';
-      return fn().finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = originalHTML;
-      });
+      btn.setAttribute('aria-busy', 'true');
+      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Loading...';
+      return fn()
+        .catch(err => {
+          const timedOut = err && err.isTimeout;
+          showToast(timedOut ? 'Request timed out. Please try again.' : 'Network error — please check your connection and try again.', 'error');
+        })
+        .finally(() => {
+          btn.disabled = false;
+          btn.removeAttribute('aria-busy');
+          btn.innerHTML = originalHTML;
+        });
     }
 
     // ===============================
@@ -120,7 +164,30 @@
     // sees the console at all, just a clear status message.
     // ===============================
     (async () => {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      let res;
+      try {
+        res = window.CVLoading
+          ? await window.CVLoading.fetchWithTimeout('/api/auth/me', { credentials: 'include' }, 12000)
+          : await fetch('/api/auth/me', { credentials: 'include' });
+      } catch (err) {
+        // Previously uncaught — a network failure/timeout here left the
+        // console permanently on its blank/skeleton state. Now shows a
+        // real ERROR state with Retry.
+        const timedOut = err && err.isTimeout;
+        document.getElementById('mainArea').innerHTML = `
+          <div class="error-state" role="alert">
+            <div class="icon" aria-hidden="true">${timedOut ? '⏳' : '📡'}</div>
+            <h3>${timedOut ? 'Still loading…' : 'Unable to load the dashboard'}</h3>
+            <p class="muted">${timedOut ? 'The connection seems slow. You can try again.' : "We couldn't reach CampusVibe. Check your connection and try again."}</p>
+            <button type="button" class="btn outline" id="retryDashboardLoad">Retry</button>
+          </div>`;
+        const retryBtn = document.getElementById('retryDashboardLoad');
+        retryBtn?.addEventListener('click', () => location.reload());
+        // ✅ Item 15 (Part 21): this is the very first thing the page tries
+        // to do, so nothing else is focusable yet — move focus to Retry.
+        window.CVLoading?.focusErrorState(retryBtn);
+        return;
+      }
       if (!res.ok) { location.href = '/login.html'; return; }
       const { user } = await res.json();
       currentUser = user;
@@ -143,7 +210,7 @@
       } else if (user.organizer_status === 'rejected') {
         main.innerHTML = `
           <div class="card gate-card">
-            <div style="font-size:40px;">🚫</div>
+            <div style="font-size:40px;" aria-hidden="true">🚫</div>
             <h3>Application not approved</h3>
             <p class="muted">Your organizer application wasn't approved. If you think this is a mistake, contact the admin team.</p>
             <a class="btn outline" href="/">Back to Home</a>
@@ -151,7 +218,7 @@
       } else {
         main.innerHTML = `
           <div class="card gate-card">
-            <div style="font-size:40px;">🔒</div>
+            <div style="font-size:40px;" aria-hidden="true">🔒</div>
             <h3>Organizer access required</h3>
             <p class="muted">This console is for approved event organizers only.</p>
             <a class="btn primary" href="/organizer-apply.html">Apply to become an organizer</a>
@@ -161,7 +228,16 @@
 
     document.getElementById('logoutBtn')?.addEventListener('click', async (e) => {
       e.preventDefault();
-      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
+      // ✅ Item 11 (Part 18): previously a bare `fetch` with no ceiling —
+      // see index.html's logout handler for why every page's own logout
+      // needs this, matching profile.html's existing 10s timeout (Part 7).
+      try {
+        const doFetch = window.CVLoading ? window.CVLoading.fetchWithTimeout : (u, o) => fetch(u, o);
+        await doFetch('/api/auth/logout', { method: 'POST', credentials: 'include' }, 10000);
+      } catch (_) {}
+      // See my-tickets.html's logout handler for why every page's own
+      // logout button (not just index.html's nav one) needs this.
+      window.CVLoading?.clearCache();
       location.href = '/';
     });
 
@@ -173,17 +249,17 @@
         <div id="lottie-dash" style="height:120px; opacity:.5; margin-bottom:8px;"></div>
         <div class="row" id="quick-stats" style="margin-bottom:20px;"></div>
 
-        <div class="section-tabs" id="tabs">
-          <button class="section-tab active" data-tab="create">➕ Create Event</button>
-          <button class="section-tab" data-tab="events">📋 My Events</button>
-          <button class="section-tab" data-tab="payment-setup">💳 Payment Setup</button>
-          <button class="section-tab" data-tab="proofs">🧾 Payment Proofs</button>
-          <button class="section-tab" data-tab="analytics">📊 Analytics</button>
-          ${isAdmin ? '<button class="section-tab" data-tab="admin">🛡️ Organizer Applications<span class="pending-pill" id="pendingPill" style="display:none;"></span></button>' : ''}
+        <div class="section-tabs" id="tabs" role="tablist" aria-label="Organizer dashboard sections">
+          <button class="section-tab active" role="tab" id="tabbtn-create" aria-selected="true" aria-controls="tab-create" tabindex="0" data-tab="create"><span aria-hidden="true">➕</span> Create Event</button>
+          <button class="section-tab" role="tab" id="tabbtn-events" aria-selected="false" aria-controls="tab-events" tabindex="-1" data-tab="events"><span aria-hidden="true">📋</span> My Events</button>
+          <button class="section-tab" role="tab" id="tabbtn-payment-setup" aria-selected="false" aria-controls="tab-payment-setup" tabindex="-1" data-tab="payment-setup"><span aria-hidden="true">💳</span> Payment Setup</button>
+          <button class="section-tab" role="tab" id="tabbtn-proofs" aria-selected="false" aria-controls="tab-proofs" tabindex="-1" data-tab="proofs"><span aria-hidden="true">🧾</span> Payment Proofs</button>
+          <button class="section-tab" role="tab" id="tabbtn-analytics" aria-selected="false" aria-controls="tab-analytics" tabindex="-1" data-tab="analytics"><span aria-hidden="true">📊</span> Analytics</button>
+          ${isAdmin ? '<button class="section-tab" role="tab" id="tabbtn-admin" aria-selected="false" aria-controls="tab-admin" tabindex="-1" data-tab="admin">🛡️ Organizer Applications<span class="pending-pill" id="pendingPill" style="display:none;"></span></button>' : ''}
         </div>
 
         <!-- ============ CREATE EVENT ============ -->
-        <div class="tab-panel active" id="tab-create">
+        <div class="tab-panel active" id="tab-create" role="tabpanel" aria-labelledby="tabbtn-create" tabindex="0">
           <div class="card">
             <h3 id="createFormTitle">Create a New Event</h3>
             <div class="step-guide">
@@ -204,26 +280,26 @@
             <div id="createdUuidBox"></div>
 
             <div class="form">
-              <div class="flex-col"><label class="label">Event Title *</label><input class="input" id="title" placeholder="e.g. TechFest 2026 - Hackathon" /></div>
-              <div class="flex-col"><label class="label">Description</label><textarea class="input" id="desc" placeholder="What's this event about?"></textarea></div>
+              <div class="flex-col"><label class="label" for="title">Event Title *</label><input class="input" id="title" placeholder="e.g. TechFest 2026 - Hackathon" /></div>
+              <div class="flex-col"><label class="label" for="desc">Description</label><textarea class="input" id="desc" placeholder="What's this event about?"></textarea></div>
               <div class="row">
                 <div class="flex-col">
-                  <label class="label">Category *</label>
+                  <label class="label" for="category">Category *</label>
                   <select class="input" id="category">
                     <option value="">Select a category</option>
                     ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
                   </select>
                 </div>
-                <div class="flex-col"><label class="label">Location *</label><input class="input" id="location" placeholder="e.g. Main Auditorium" /></div>
+                <div class="flex-col"><label class="label" for="location">Location *</label><input class="input" id="location" placeholder="e.g. Main Auditorium" /></div>
               </div>
               <div class="row">
-                <div class="flex-col"><label class="label">Start time *</label><input class="input" id="start" type="datetime-local" /></div>
-                <div class="flex-col"><label class="label">Finish time *</label><input class="input" id="end" type="datetime-local" /></div>
+                <div class="flex-col"><label class="label" for="start">Start time *</label><input class="input" id="start" type="datetime-local" /></div>
+                <div class="flex-col"><label class="label" for="end">Finish time *</label><input class="input" id="end" type="datetime-local" /></div>
               </div>
               <p class="muted" style="margin:-8px 0 0;font-size:.85rem;">⏰ Once the finish time passes, this event is automatically removed from the public homepage.</p>
               <div class="row">
-                <div class="flex-col"><label class="label">Capacity</label><input class="input" id="capacity" type="number" placeholder="Optional — max registrations" /></div>
-                <div class="flex-col"><label class="label">Visibility</label>
+                <div class="flex-col"><label class="label" for="capacity">Capacity</label><input class="input" id="capacity" type="number" placeholder="Optional — max registrations" /></div>
+                <div class="flex-col"><label class="label" for="visibility">Visibility</label>
                   <select class="input" id="visibility">
                     <option value="public">Public (shown on homepage)</option>
                     <option value="private">Private (link-only)</option>
@@ -236,15 +312,15 @@
                 <p class="muted" style="margin-top:0;">Select which registration types are offered, and the amount payable for each. Students will see exactly these options when registering.</p>
                 <div class="row">
                   <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="allow_single" checked /> Single</label>
-                  <input class="input" id="price_single" type="number" placeholder="Price for Single (₹)" />
+                  <input class="input" id="price_single" type="number" aria-label="Price for Single (₹)" placeholder="Price for Single (₹)" />
                 </div>
                 <div class="row">
                   <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="allow_duo" /> Duo</label>
-                  <input class="input" id="price_duo" type="number" placeholder="Price for Duo (₹)" />
+                  <input class="input" id="price_duo" type="number" aria-label="Price for Duo (₹)" placeholder="Price for Duo (₹)" />
                 </div>
                 <div class="row">
                   <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="allow_trio" /> Trio</label>
-                  <input class="input" id="price_trio" type="number" placeholder="Price for Trio (₹)" />
+                  <input class="input" id="price_trio" type="number" aria-label="Price for Trio (₹)" placeholder="Price for Trio (₹)" />
                 </div>
               </div>
 
@@ -265,7 +341,7 @@
               </div>
 
               <div class="row">
-                <div class="flex-col"><label class="label">Publish status</label>
+                <div class="flex-col"><label class="label" for="status">Publish status</label>
                   <select class="input" id="status">
                     <option value="published">Published (visible now)</option>
                     <option value="draft">Draft (hidden until you publish)</option>
@@ -282,7 +358,7 @@
         </div>
 
         <!-- ============ MY EVENTS ============ -->
-        <div class="tab-panel" id="tab-events">
+        <div class="tab-panel" id="tab-events" role="tabpanel" aria-labelledby="tabbtn-events" tabindex="0">
           <div class="card">
             <h3>Your Events</h3>
             <p class="muted">Events automatically disappear from this list and the homepage once their finish time has passed.</p>
@@ -291,7 +367,7 @@
         </div>
 
         <!-- ============ PAYMENT SETUP ============ -->
-        <div class="tab-panel" id="tab-payment-setup">
+        <div class="tab-panel" id="tab-payment-setup" role="tabpanel" aria-labelledby="tabbtn-payment-setup" tabindex="0">
           <div class="card">
             <h3>Payment Setup (Bank / UPI)</h3>
             <div class="step-guide">
@@ -309,16 +385,17 @@
               </div>
             </div>
             <div class="form">
-              <div class="flex-col"><label class="label">Event ID *</label><input class="input" id="e_uuid" placeholder="e.g. ${todayPrefix()}482913" /></div>
+              <div class="flex-col"><label class="label" for="e_uuid">Event ID *</label><input class="input" id="e_uuid" placeholder="e.g. ${todayPrefix()}482913" /></div>
               <div class="row">
-                <input class="input" id="acc_name" placeholder="Account Holder Name" />
-                <input class="input" id="acc_no" placeholder="Account Number" />
+                <input class="input" id="acc_name" aria-label="Account Holder Name" placeholder="Account Holder Name" />
+                <input class="input" id="acc_no" aria-label="Account Number" placeholder="Account Number" />
               </div>
               <div class="row">
-                <input class="input" id="ifsc" placeholder="IFSC Code" />
-                <input class="input" id="upi" placeholder="UPI ID (e.g. name@bank)" />
+                <input class="input" id="ifsc" aria-label="IFSC Code" placeholder="IFSC Code" />
+                <input class="input" id="upi" aria-label="UPI ID (e.g. name@bank)" placeholder="UPI ID (e.g. name@bank)" />
               </div>
-              <div class="flex-col"><label class="label">UPI QR code image (optional)</label><input class="input" id="upi_qr" type="file" accept="image/*" /></div>
+              <div class="flex-col"><label class="label" for="upi_qr">UPI QR code image (optional)</label><input class="input" id="upi_qr" type="file" accept="image/*" /></div>
+              <label class="label sr-only" for="notes">Extra payment instructions for students</label>
               <textarea class="input" id="notes" placeholder="Any extra payment instructions for students"></textarea>
               <button class="btn primary" id="savePay" style="justify-self:start;">Save Payment Setup</button>
             </div>
@@ -326,13 +403,13 @@
         </div>
 
         <!-- ============ PAYMENT PROOFS ============ -->
-        <div class="tab-panel" id="tab-proofs">
+        <div class="tab-panel" id="tab-proofs" role="tabpanel" aria-labelledby="tabbtn-proofs" tabindex="0">
           <div class="card">
             <h3>Payment Proofs</h3>
             <p class="muted">Enter an Event ID to see students who've submitted a Transaction ID / UTR number awaiting your approval.</p>
             <div class="form">
               <div class="row">
-                <input class="input" id="e_uuid_list" placeholder="Event ID" />
+                <input class="input" id="e_uuid_list" aria-label="Event ID" placeholder="Event ID" />
                 <button class="btn outline" id="listProofs" style="justify-self:start;">List Pending Proofs</button>
               </div>
             </div>
@@ -341,17 +418,17 @@
         </div>
 
         <!-- ============ ANALYTICS ============ -->
-        <div class="tab-panel" id="tab-analytics">
+        <div class="tab-panel" id="tab-analytics" role="tabpanel" aria-labelledby="tabbtn-analytics" tabindex="0">
           <div class="card">
             <h3>Analytics</h3>
             <p class="muted">Click "View Analytics" on an event under "My Events" to load its stats here.</p>
-            <div id="analytics"></div>
+            <div id="analytics" role="status" aria-live="polite" aria-atomic="true"></div>
           </div>
         </div>
 
         ${isAdmin ? `
         <!-- ============ ADMIN: ORGANIZER APPLICATIONS ============ -->
-        <div class="tab-panel" id="tab-admin">
+        <div class="tab-panel" id="tab-admin" role="tabpanel" aria-labelledby="tabbtn-admin" tabindex="0">
           <div class="card">
             <h3>Pending Organizer Applications</h3>
             <p class="muted">Approve trusted staff/club coordinators to grant them organizer access. Students remain regular accounts until approved here.</p>
@@ -393,10 +470,39 @@
     }
 
     function wireTabs() {
-      document.getElementById('tabs').addEventListener('click', (e) => {
+      const tablist = document.getElementById('tabs');
+      tablist.addEventListener('click', (e) => {
         const tab = e.target.closest('.section-tab');
         if (!tab) return;
         switchTab(tab.dataset.tab);
+      });
+
+      // WAI-ARIA Authoring Practices "Tabs" pattern, automatic activation:
+      // Left/Right move focus AND activate the newly-focused tab (Home/End
+      // jump to the first/last tab). This container only ever holds one
+      // row of tabs, so Up/Down are treated the same as Left/Right — some
+      // screen-reader users expect either axis to work on a horizontal tab
+      // list, and supporting both costs nothing here.
+      tablist.addEventListener('keydown', (e) => {
+        const tabs = Array.from(tablist.querySelectorAll('.section-tab'));
+        const currentIndex = tabs.indexOf(document.activeElement);
+        if (currentIndex === -1) return;
+        let newIndex = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          newIndex = (currentIndex + 1) % tabs.length;
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          newIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+        } else if (e.key === 'Home') {
+          newIndex = 0;
+        } else if (e.key === 'End') {
+          newIndex = tabs.length - 1;
+        } else {
+          return;
+        }
+        e.preventDefault();
+        const target = tabs[newIndex];
+        switchTab(target.dataset.tab);
+        target.focus();
       });
     }
 
@@ -404,12 +510,21 @@
     // the "Set up Payment →" shortcut. Previously the shortcut worked by
     // re-dispatching a synthetic click on the tab button; that's an extra,
     // unnecessary layer of indirection, so we call this directly instead.
+    //
+    // Also drives the ARIA Tabs pattern: keeps aria-selected/tabindex in
+    // sync with which panel is showing, using a roving tabindex (only the
+    // selected tab is in the Tab order — matching native <input
+    // type="radio"> group behavior — arrow keys move between the rest, per
+    // the WAI-ARIA APG "Tabs" pattern).
     function switchTab(tabName) {
-      document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.section-tab').forEach(t => {
+        const selected = t.dataset.tab === tabName;
+        t.classList.toggle('active', selected);
+        t.setAttribute('aria-selected', String(selected));
+        t.tabIndex = selected ? 0 : -1;
+      });
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      const tabBtn = document.querySelector(`.section-tab[data-tab="${tabName}"]`);
       const panel = document.getElementById(`tab-${tabName}`);
-      if (tabBtn) tabBtn.classList.add('active');
       if (panel) panel.classList.add('active');
     }
 
@@ -438,16 +553,16 @@
       row.dataset.rowId = id;
       row.style.alignItems = 'flex-end';
       row.innerHTML = `
-        <div class="flex-col"><label class="label">Code</label><input class="input dc-code" placeholder="e.g. SAVE20" value="${data?.code ? escapeAttr(data.code) : ''}" /></div>
-        <div class="flex-col"><label class="label">Type</label>
-          <select class="input dc-type">
+        <div class="flex-col"><label class="label" for="${id}-code">Code</label><input class="input dc-code" id="${id}-code" placeholder="e.g. SAVE20" value="${data?.code ? escapeAttr(data.code) : ''}" /></div>
+        <div class="flex-col"><label class="label" for="${id}-type">Type</label>
+          <select class="input dc-type" id="${id}-type">
             <option value="percentage" ${data && data.percentage != null ? 'selected' : ''}>% off</option>
             <option value="amount" ${data && data.amount_cents != null ? 'selected' : ''}>₹ off</option>
           </select>
         </div>
-        <div class="flex-col"><label class="label">Value</label><input class="input dc-value" type="number" placeholder="e.g. 20" value="${data && data.percentage != null ? data.percentage : (data && data.amount_cents != null ? data.amount_cents / 100 : '')}" /></div>
-        <div class="flex-col"><label class="label">Max uses</label><input class="input dc-max" type="number" placeholder="Optional" value="${data && data.max_uses != null ? data.max_uses : ''}" /></div>
-        <button type="button" class="btn outline dc-remove" title="Remove">✕</button>
+        <div class="flex-col"><label class="label" for="${id}-value">Value</label><input class="input dc-value" id="${id}-value" type="number" placeholder="e.g. 20" value="${data && data.percentage != null ? data.percentage : (data && data.amount_cents != null ? data.amount_cents / 100 : '')}" /></div>
+        <div class="flex-col"><label class="label" for="${id}-max">Max uses</label><input class="input dc-max" id="${id}-max" type="number" placeholder="Optional" value="${data && data.max_uses != null ? data.max_uses : ''}" /></div>
+        <button type="button" class="btn outline dc-remove" aria-label="Remove discount code row" title="Remove">✕</button>
       `;
       row.querySelector('.dc-remove').addEventListener('click', () => row.remove());
       els.discountCodesList.appendChild(row);
@@ -455,6 +570,20 @@
 
     function escapeAttr(s) {
       return String(s).replace(/"/g, '&quot;');
+    }
+
+    // ✅ SEC-020 fix (Part 6): general-purpose HTML-text escaper, matching the
+    // pattern already used in app.js/event.html/index.html. Applied below to
+    // every place this page renders another user's data (event titles are the
+    // organizer's own, so lower risk, but student names/emails/UTR text in the
+    // payment-proofs list and applicant name/mobile/roll/reason in the admin
+    // organizer-applications list are attacker-controlled free text submitted
+    // by someone else — without this, a crafted name/reason string executes
+    // script in the *reviewing organizer's or admin's* authenticated session.
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str == null ? '' : String(str);
+      return div.innerHTML;
     }
 
     function collectDiscountCodes() {
@@ -527,9 +656,10 @@
 
         const url = isEditing ? `/api/events/${editingUuid}` : '/api/events';
         const method = isEditing ? 'PUT' : 'POST';
-        const res = await fetch(url, {
+        const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+        const res = await fetcher(url, {
           method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body)
-        });
+        }, 15000);
 
         if (res.ok) {
           if (isEditing) {
@@ -551,7 +681,7 @@
                 <div class="uuid-value">UUID : ${lastCreatedUuid}</div>
               </div>
               <div class="flex" style="gap:8px;">
-                <button type="button" class="btn outline" id="copyUuidBtn">📋 Copy</button>
+                <button type="button" class="btn outline" id="copyUuidBtn"><span aria-hidden="true">📋</span> Copy</button>
                 <button type="button" class="btn primary" id="goToPaymentBtn">Set up Payment →</button>
               </div>
             </div>`;
@@ -605,7 +735,12 @@
       els.discounts_enabled.checked = !!ev.discounts_enabled;
       els.discountCodesWrap.style.display = ev.discounts_enabled ? 'block' : 'none';
       if (ev.discounts_enabled) {
-        fetch(`/api/organizer/events/${uuid}/discounts`, { credentials: 'include' })
+        // Already degraded gracefully on failure (falls back to one empty
+        // row instead of leaving the section broken) — just added the
+        // same timeout ceiling as everything else so a hung request can't
+        // leave this section looking like it's still loading indefinitely.
+        const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+        fetcher(`/api/organizer/events/${uuid}/discounts`, { credentials: 'include' }, 12000)
           .then(res => res.ok ? res.json() : { discounts: [] })
           .then(data => {
             const list = data.discounts || [];
@@ -620,6 +755,10 @@
       els.create.textContent = 'Save Changes';
       document.getElementById('cancelEdit').style.display = 'inline-flex';
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      // "Edit" jumps here from the "My Events" tab — the user's actual
+      // intent is to edit the title, so move focus there directly rather
+      // than leaving it on the tab button they didn't click.
+      els.title.focus();
     }
 
     function exitEditMode() {
@@ -678,39 +817,71 @@
     }
 
     async function loadEvents() {
-      const res = await fetch('/api/organizer/my-events?active_only=1', { credentials: 'include' });
-      if (!res.ok) { els.events.innerHTML = '<div class="muted">Failed to load events</div>'; return; }
+      const statsEl = document.getElementById('quick-stats');
+      statsEl.setAttribute('aria-busy', 'true');
+      els.events.setAttribute('aria-busy', 'true');
+      els.events.innerHTML = window.CVLoading ? window.CVLoading.skeletonTable(3, 1) : '<div class="muted">Loading…</div>';
+
+      let res;
+      try {
+        res = window.CVLoading
+          ? await window.CVLoading.fetchWithTimeout('/api/organizer/my-events?active_only=1', { credentials: 'include' }, 12000)
+          : await fetch('/api/organizer/my-events?active_only=1', { credentials: 'include' });
+      } catch (err) {
+        renderEventsLoadError(err && err.isTimeout);
+        return;
+      }
+      if (!res.ok) { renderEventsLoadError(false); return; }
       const data = await res.json();
       myEventsCache = data.events;
+      statsEl.removeAttribute('aria-busy');
+      els.events.removeAttribute('aria-busy');
 
       document.getElementById('quick-stats').innerHTML = `
         <div class="card stat-card"><div class="num">${data.events.length}</div><div class="lbl">Live / Upcoming Events</div></div>
       `;
 
       if (!data.events.length) {
-        els.events.innerHTML = `<div class="empty-state"><div class="icon">🗓️</div><h3>No live events yet</h3><p class="muted">Create your first event in the "Create Event" tab.</p></div>`;
+        els.events.innerHTML = `<div class="empty-state"><div class="icon" aria-hidden="true">🗓️</div><h3>No live events yet</h3><p class="muted">Create your first event in the "Create Event" tab.</p></div>`;
         return;
       }
 
       els.events.innerHTML = data.events.map(e => `
         <div class="event-row">
           <div class="event-row-info">
-            <b>${e.title}</b> ${e.category ? `<span class="cat-chip cat-${e.category.toLowerCase()}" style="margin-left:6px;">${e.category}</span>` : ''}<br/>
+            <b>${escapeHtml(e.title)}</b> ${e.category ? `<span class="cat-chip cat-${escapeHtml(e.category.toLowerCase())}" style="margin-left:6px;">${escapeHtml(e.category)}</span>` : ''}<br/>
             <span class="muted" style="font-size:.85rem;">${new Date(e.start_time).toLocaleString('en-IN')}${e.end_time ? ' → ' + new Date(e.end_time).toLocaleString('en-IN') : ''}</span><br/>
             <span class="uuid-value" style="font-size:.85rem;">UUID : ${e.uuid}</span>
           </div>
           <div class="event-row-actions">
-            <button class="btn outline" data-action="edit" data-uuid="${e.uuid}">✏️ Edit</button>
-            <button class="btn outline" data-action="analytics" data-uuid="${e.uuid}">📊 Analytics</button>
-            <button class="btn outline" data-action="payment" data-uuid="${e.uuid}">💳 Payment Setup</button>
-            <button class="btn outline" data-action="copy" data-uuid="${e.uuid}">📋 Copy ID</button>
-            <button class="btn danger" data-action="delete" data-uuid="${e.uuid}">🗑️ Delete</button>
+            <button class="btn outline" data-action="edit" data-uuid="${e.uuid}"><span aria-hidden="true">✏️</span> Edit</button>
+            <button class="btn outline" data-action="analytics" data-uuid="${e.uuid}"><span aria-hidden="true">📊</span> Analytics</button>
+            <button class="btn outline" data-action="payment" data-uuid="${e.uuid}"><span aria-hidden="true">💳</span> Payment Setup</button>
+            <button class="btn outline" data-action="copy" data-uuid="${e.uuid}"><span aria-hidden="true">📋</span> Copy ID</button>
+            <button class="btn danger" data-action="delete" data-uuid="${e.uuid}"><span aria-hidden="true">🗑️</span> Delete</button>
           </div>
         </div>
       `).join('');
 
       els.events.removeEventListener('click', handleEventClick);
       els.events.addEventListener('click', handleEventClick);
+    }
+
+    function renderEventsLoadError(isTimeout) {
+      document.getElementById('quick-stats').removeAttribute('aria-busy');
+      els.events.removeAttribute('aria-busy');
+      els.events.innerHTML = `
+        <div class="error-state" role="alert">
+          <div class="icon" aria-hidden="true">${isTimeout ? '⏳' : '📡'}</div>
+          <h3>${isTimeout ? 'Still loading…' : 'Failed to load your events'}</h3>
+          <p class="muted">${isTimeout ? 'The connection seems slow. You can try again.' : 'Please check your connection and try again.'}</p>
+          <button type="button" class="btn outline" id="retryLoadEvents">Retry</button>
+        </div>`;
+      const retryBtn = document.getElementById('retryLoadEvents');
+      retryBtn?.addEventListener('click', loadEvents);
+      // ✅ Item 15 (Part 21): this is the tab's initial/only content load,
+      // so the events panel has nothing else to hold focus — move it to Retry.
+      window.CVLoading?.focusErrorState(retryBtn);
     }
 
     async function handleEventClick(e) {
@@ -725,8 +896,10 @@
           break;
         case 'analytics':
           switchTab('analytics');
+          document.getElementById('tab-analytics').focus();
           await withLoading(btn, async () => {
-            const r = await fetch(`/api/analytics/events/${uuid}`, { credentials: 'include' });
+            const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+            const r = await fetcher(`/api/analytics/events/${uuid}`, { credentials: 'include' }, 12000);
             if (!r.ok) return showToast('Forbidden or not found', 'error');
             const a = await r.json();
             els.analytics.innerHTML = `
@@ -746,7 +919,8 @@
         case 'delete':
           if (!confirm('Delete this event? This action cannot be undone.')) return;
           await withLoading(btn, async () => {
-            const r = await fetch(`/api/events/${uuid}`, { method: 'DELETE', credentials: 'include' });
+            const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+            const r = await fetcher(`/api/events/${uuid}`, { method: 'DELETE', credentials: 'include' }, 12000);
             if (r.ok) { showToast('Event deleted'); loadEvents(); }
             else showToast('Failed to delete', 'error');
           });
@@ -758,19 +932,66 @@
       const e_uuid = els.e_uuid.value.trim();
       if (!e_uuid) { showToast('Event ID is required', 'error'); return; }
 
-      await withLoading(els.savePay, async () => {
-        const fd = new FormData();
-        fd.append('bank_account_name', document.getElementById('acc_name').value);
-        fd.append('bank_account_no', document.getElementById('acc_no').value);
-        fd.append('bank_ifsc', document.getElementById('ifsc').value);
-        fd.append('upi_id', document.getElementById('upi').value);
-        fd.append('payment_notes', document.getElementById('notes').value);
-        const qrFile = document.getElementById('upi_qr').files[0];
-        if (qrFile) fd.append('upi_qr', qrFile);
+      const btn = els.savePay;
+      const qrFile = document.getElementById('upi_qr').files[0];
 
-        const res = await fetch(`/api/events/${e_uuid}/payment-setup`, { method: 'PUT', credentials: 'include', body: fd });
+      // ✅ Item 2 (Part 15): a QR upload is exactly the kind of "genuinely
+      // takes longer" operation the spec calls out for a real progress
+      // indicator ("Uploading 65%") instead of an indefinite spinner. Only
+      // the file-upload path can report a real percentage (XHR upload
+      // progress events), so it's split out from withLoading()'s generic
+      // spinner; the no-file save keeps using withLoading() exactly as
+      // before — same guard against duplicate submits, same error toasts.
+      if (!qrFile || !(window.CVLoading && window.CVLoading.fetchWithProgress)) {
+        await withLoading(btn, async () => {
+          const fd = new FormData();
+          fd.append('bank_account_name', document.getElementById('acc_name').value);
+          fd.append('bank_account_no', document.getElementById('acc_no').value);
+          fd.append('bank_ifsc', document.getElementById('ifsc').value);
+          fd.append('upi_id', document.getElementById('upi').value);
+          fd.append('payment_notes', document.getElementById('notes').value);
+          if (qrFile) fd.append('upi_qr', qrFile);
+
+          const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+          const res = await fetcher(`/api/events/${e_uuid}/payment-setup`, { method: 'PUT', credentials: 'include', body: fd }, 25000);
+          showToast(res.ok ? 'Payment setup saved!' : 'Failed to save — check the Event ID', res.ok ? 'success' : 'error');
+        });
+        return;
+      }
+
+      if (btn.disabled) return; // duplicate-submission protection, same as withLoading()
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+      btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Uploading 0%';
+
+      const fd = new FormData();
+      fd.append('bank_account_name', document.getElementById('acc_name').value);
+      fd.append('bank_account_no', document.getElementById('acc_no').value);
+      fd.append('bank_ifsc', document.getElementById('ifsc').value);
+      fd.append('upi_id', document.getElementById('upi').value);
+      fd.append('payment_notes', document.getElementById('notes').value);
+      fd.append('upi_qr', qrFile);
+
+      try {
+        const res = await window.CVLoading.fetchWithProgress(`/api/events/${e_uuid}/payment-setup`, {
+          method: 'PUT',
+          credentials: 'include',
+          body: fd,
+          timeoutMs: 25000,
+          onProgress: (pct) => {
+            btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>Uploading ${pct}%`;
+          },
+        });
         showToast(res.ok ? 'Payment setup saved!' : 'Failed to save — check the Event ID', res.ok ? 'success' : 'error');
-      });
+      } catch (err) {
+        const timedOut = err && err.isTimeout;
+        showToast(timedOut ? 'Request timed out. Please try again.' : 'Network error — please check your connection and try again.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+        btn.innerHTML = originalHTML;
+      }
     }
 
     async function listProofs() {
@@ -778,12 +999,13 @@
       if (!e_uuid_list) { showToast('Event ID required', 'error'); return; }
 
       await withLoading(els.listProofs, async () => {
-        const res = await fetch(`/api/organizer/events/${e_uuid_list}/payments?status=pending`, { credentials: 'include' });
+        const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+        const res = await fetcher(`/api/organizer/events/${e_uuid_list}/payments?status=pending`, { credentials: 'include' }, 12000);
         if (!res.ok) { showToast('Failed to load proofs — check the Event ID', 'error'); return; }
 
         const data = await res.json();
         if (!data.payments.length) {
-          els.proofs.innerHTML = `<div class="empty-state"><div class="icon">✅</div><h3>No pending proofs</h3><p class="muted">Nothing to review right now.</p></div>`;
+          els.proofs.innerHTML = `<div class="empty-state"><div class="icon" aria-hidden="true">✅</div><h3>No pending proofs</h3><p class="muted">Nothing to review right now.</p></div>`;
           return;
         }
 
@@ -794,42 +1016,96 @@
           d.style.marginBottom = '10px';
           d.innerHTML = `
             <div><b>Ticket #${String(p.ticket_number).padStart(4, '0')}</b></div>
-            <div class="muted">${p.user_name} (${p.user_email})</div>
-            <div>Transaction ID / UTR: <b>${p.proof_txn_id || '-'}</b></div>
+            <div class="muted">${escapeHtml(p.user_name)} (${escapeHtml(p.user_email)})</div>
+            <div>Transaction ID / UTR: <b>${escapeHtml(p.proof_txn_id || '-')}</b></div>
             <div class="flex" style="margin-top:8px;">
-              <button class="btn primary" data-approve="${p.ticket_uuid}">✅ Approve</button>
-              <button class="btn danger" data-reject="${p.ticket_uuid}">❌ Reject</button>
+              <button class="btn primary" data-approve="${p.ticket_uuid}"><span aria-hidden="true">✅</span> Approve</button>
+              <button class="btn danger" data-reject="${p.ticket_uuid}"><span aria-hidden="true">❌</span> Reject</button>
             </div>`;
-          d.querySelector('[data-approve]').onclick = () => approvePayment(p.ticket_uuid);
-          d.querySelector('[data-reject]').onclick = () => rejectPayment(p.ticket_uuid);
+          d.querySelector('[data-approve]').onclick = (e) => approvePayment(p.ticket_uuid, e.currentTarget);
+          d.querySelector('[data-reject]').onclick = (e) => rejectPayment(p.ticket_uuid, e.currentTarget);
           els.proofs.appendChild(d);
         });
         showToast(`${data.payments.length} pending proof(s) loaded`);
       });
     }
 
-    async function approvePayment(ticketUuid) {
-      const res = await fetch(`/api/organizer/payments/${ticketUuid}/approve`, { method: 'POST', credentials: 'include' });
-      showToast(res.ok ? 'Approved!' : 'Failed', res.ok ? 'success' : 'error');
-      els.listProofs.click();
+    async function approvePayment(ticketUuid, btn) {
+      // withLoading disables `btn` for the duration of the request, so a
+      // second click (or a slow connection making someone click twice)
+      // can't fire a duplicate approve — previously this had no guard at all.
+      await withLoading(btn, async () => {
+        const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+        const res = await fetcher(`/api/organizer/payments/${ticketUuid}/approve`, { method: 'POST', credentials: 'include' }, 12000);
+        showToast(res.ok ? 'Approved!' : 'Failed', res.ok ? 'success' : 'error');
+        if (res.ok) listProofs();
+      });
     }
 
-    async function rejectPayment(ticketUuid) {
+    async function rejectPayment(ticketUuid, btn) {
       const reason = prompt('Reason for rejection?');
       if (!reason) return;
-      const res = await fetch(`/api/organizer/payments/${ticketUuid}/reject`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+      await withLoading(btn, async () => {
+        const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+        const res = await fetcher(`/api/organizer/payments/${ticketUuid}/reject`, {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason })
+        }, 12000);
+        showToast(res.ok ? 'Rejected' : 'Failed', res.ok ? 'success' : 'error');
+        if (res.ok) listProofs();
       });
-      showToast(res.ok ? 'Rejected' : 'Failed', res.ok ? 'success' : 'error');
-      els.listProofs.click();
     }
 
     // ===============================
     // ADMIN: organizer applications
     // ===============================
     async function loadApplications() {
-      const res = await fetch('/api/admin/organizer-applications', { credentials: 'include' });
-      if (!res.ok) return;
+      const wrapEl = document.getElementById('applications');
+      // Previously this rendered nothing while loading and, on a network
+      // failure, threw uncaught and left the panel permanently blank —
+      // indistinguishable from "no pending applications." Now it shows a
+      // skeleton, and a real failure gets a retryable error state.
+      if (wrapEl) {
+        wrapEl.setAttribute('aria-busy', 'true');
+        wrapEl.innerHTML = window.CVLoading ? window.CVLoading.skeletonTable(2, 1) : '<div class="muted">Loading…</div>';
+      }
+
+      let res;
+      try {
+        res = window.CVLoading
+          ? await window.CVLoading.fetchWithTimeout('/api/admin/organizer-applications', { credentials: 'include' }, 12000)
+          : await fetch('/api/admin/organizer-applications', { credentials: 'include' });
+      } catch (err) {
+        if (wrapEl) {
+          wrapEl.removeAttribute('aria-busy');
+          const timedOut = err && err.isTimeout;
+          wrapEl.innerHTML = window.CVLoading
+            ? window.CVLoading.errorStateHtml({
+                icon: timedOut ? '⏳' : '📡',
+                title: timedOut ? 'Still loading…' : 'Failed to load applications',
+                message: timedOut ? 'The connection seems slow. You can try again.' : 'Please check your connection and try again.',
+                retryId: 'retryLoadApplications'
+              })
+            : '<div class="muted">Failed to load. Please retry.</div>';
+          const retryBtn = document.getElementById('retryLoadApplications');
+          retryBtn?.addEventListener('click', loadApplications);
+          // ✅ Item 15 (Part 21): this is the panel's initial load for the
+          // tab — move focus to Retry so it doesn't just sit silently.
+          window.CVLoading?.focusErrorState(retryBtn);
+        }
+        return;
+      }
+      if (wrapEl) wrapEl.removeAttribute('aria-busy');
+      if (!res.ok) {
+        if (wrapEl) {
+          wrapEl.innerHTML = window.CVLoading
+            ? window.CVLoading.errorStateHtml({ title: 'Failed to load applications', message: 'Please try again.', retryId: 'retryLoadApplications' })
+            : '<div class="muted">Failed to load. Please retry.</div>';
+          const retryBtn = document.getElementById('retryLoadApplications');
+          retryBtn?.addEventListener('click', loadApplications);
+          window.CVLoading?.focusErrorState(retryBtn);
+        }
+        return;
+      }
       const { applications } = await res.json();
       const pill = document.getElementById('pendingPill');
       if (pill) {
@@ -837,38 +1113,44 @@
         else pill.style.display = 'none';
       }
 
-      const wrap = document.getElementById('applications');
+      const wrap = wrapEl;
       if (!wrap) return;
       if (!applications.length) {
-        wrap.innerHTML = `<div class="empty-state"><div class="icon">✅</div><h3>No pending applications</h3><p class="muted">You're all caught up.</p></div>`;
+        wrap.innerHTML = `<div class="empty-state"><div class="icon" aria-hidden="true">✅</div><h3>No pending applications</h3><p class="muted">You're all caught up.</p></div>`;
         return;
       }
       wrap.innerHTML = applications.map(a => `
         <div class="applicant-card">
           <div class="applicant-info">
-            <h5>${a.name} <span class="muted" style="font-weight:400;">— ${a.email}</span></h5>
-            <div class="muted">📱 ${a.mobile}${a.roll_number ? ' • ' + a.roll_number : ''}</div>
-            ${a.organizer_reason ? `<div class="muted" style="margin-top:6px;">"${a.organizer_reason}"</div>` : ''}
+            <h5>${escapeHtml(a.name)} <span class="muted" style="font-weight:400;">— ${escapeHtml(a.email)}</span></h5>
+            <div class="muted">📱 ${escapeHtml(a.mobile)}${a.roll_number ? ' • ' + escapeHtml(a.roll_number) : ''}</div>
+            ${a.organizer_reason ? `<div class="muted" style="margin-top:6px;">"${escapeHtml(a.organizer_reason)}"</div>` : ''}
           </div>
           <div class="applicant-actions">
-            <button class="btn primary" data-approve-app="${a.id}">✅ Approve</button>
-            <button class="btn danger" data-reject-app="${a.id}">❌ Reject</button>
+            <button class="btn primary" data-approve-app="${a.id}"><span aria-hidden="true">✅</span> Approve</button>
+            <button class="btn danger" data-reject-app="${a.id}"><span aria-hidden="true">❌</span> Reject</button>
           </div>
         </div>
       `).join('');
 
       wrap.querySelectorAll('[data-approve-app]').forEach(btn => {
-        btn.onclick = () => reviewApplication(btn.dataset.approveApp, 'approve');
+        btn.onclick = (e) => reviewApplication(btn.dataset.approveApp, 'approve', e.currentTarget);
       });
       wrap.querySelectorAll('[data-reject-app]').forEach(btn => {
-        btn.onclick = () => reviewApplication(btn.dataset.rejectApp, 'reject');
+        btn.onclick = (e) => reviewApplication(btn.dataset.rejectApp, 'reject', e.currentTarget);
       });
     }
 
-    async function reviewApplication(id, action) {
-      const res = await fetch(`/api/admin/organizer-applications/${id}/${action}`, { method: 'POST', credentials: 'include' });
-      showToast(res.ok ? `Application ${action}d` : 'Failed', res.ok ? 'success' : 'error');
-      loadApplications();
+    async function reviewApplication(id, action, btn) {
+      // withLoading disables `btn` for the request's duration — guards
+      // against a duplicate approve/reject from a double-click or a slow
+      // connection, which this had no protection against before.
+      await withLoading(btn, async () => {
+        const fetcher = window.CVLoading ? window.CVLoading.fetchWithTimeout : fetch;
+        const res = await fetcher(`/api/admin/organizer-applications/${id}/${action}`, { method: 'POST', credentials: 'include' }, 12000);
+        showToast(res.ok ? `Application ${action}d` : 'Failed', res.ok ? 'success' : 'error');
+        if (res.ok) loadApplications();
+      });
     }
   </script>
   <script src="/assets/js/chatbot.js"></script>

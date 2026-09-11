@@ -1,0 +1,105 @@
+# CampusVibe — Documentation
+
+Welcome to the CampusVibe documentation. This folder is a complete,
+professional reference for the project: what it is, how it's built, how
+every piece works, and what to know before extending or deploying it.
+
+Everything here was written by reading the actual source code in this
+repository (`server.js`, every file under `public/`, `package.json`,
+`.env.example`) — not from assumptions. Where something in the code is
+unused, incomplete, or a known rough edge, that's stated plainly rather
+than glossed over. See [`11-known-limitations-and-tech-debt.md`](./11-known-limitations-and-tech-debt.md)
+for the honest list.
+
+## How to read this
+
+If you're new to the project, read in this order:
+
+1. **[01-project-overview.md](./01-project-overview.md)** — What CampusVibe
+   is, who it's for, and what it does, in plain language.
+2. **[02-tech-stack.md](./02-tech-stack.md)** — The technologies used, the
+   folder layout, and which installed dependencies are actually wired up.
+3. **[03-architecture.md](./03-architecture.md)** — How a request flows
+   through the server, the routing order, and the background jobs that
+   run continuously (like seat-hold expiry).
+4. **[04-database-schema.md](./04-database-schema.md)** — Every table,
+   every column, every relationship, and which tables exist but aren't
+   used yet.
+5. **[05-api-reference.md](./05-api-reference.md)** — Every HTTP endpoint
+   the server exposes, grouped by area, with request/response shapes.
+6. **[06-authentication-and-roles.md](./06-authentication-and-roles.md)**
+   — How login works, how roles and permissions are enforced, and the
+   organizer-approval workflow.
+7. **[07-frontend-pages.md](./07-frontend-pages.md)** — A page-by-page
+   walkthrough of all 12 pages under `public/`, what each one does, and
+   which API endpoints it calls.
+8. **[08-core-features.md](./08-core-features.md)** — Deep dives into the
+   features that make CampusVibe more than a basic CRUD app: ticket
+   tiers, the 5-minute seat-hold system, manual payment verification,
+   QR-code attendance, the chatbot, multilingual support, and calendar
+   export.
+9. **[09-setup-and-deployment.md](./09-setup-and-deployment.md)** — How to
+   configure, run, and deploy the project, with every environment
+   variable explained.
+10. **[10-accessibility.md](./10-accessibility.md)** — A summary of, and
+    pointer to, the project's separate accessibility audit and
+    conformance documentation.
+11. **[11-known-limitations-and-tech-debt.md](./11-known-limitations-and-tech-debt.md)**
+    — Unused dependencies, dead code, unfinished features, and anything
+    else an engineer picking this project up should know before relying
+    on it.
+12. **[glossary.md](./glossary.md)** — Quick lookup for project-specific
+    terms (ticket tiers, seat holds, "committee" role, etc.).
+
+## Project at a glance
+
+| | |
+|---|---|
+| **Name** | CampusVibe |
+| **Tagline** | "Ideal Management, Ideal Moments" |
+| **Type** | Campus event management platform (web app) |
+| **Backend** | Node.js + Express + SQLite |
+| **Frontend** | Static HTML/CSS/vanilla JavaScript (no framework, no build step) |
+| **Auth** | Email/password (JWT in an HTTP-only cookie) + optional Google OAuth |
+| **Payments** | Manual — bank transfer / UPI with organizer-reviewed proof, not a live payment gateway |
+| **Entry point** | `server.js` |
+| **Database file** | `data/campusvibe.db` (SQLite, created automatically on first run) |
+
+## Where things live in this repository
+
+```
+CampusVibe/
+├── server.js                 # The entire backend: routes, schema, auth, business logic
+├── package.json               # Dependencies and npm scripts
+├── .env.example                # Every environment variable, documented inline
+├── data/
+│   └── campusvibe.db           # SQLite database (auto-created)
+├── public/                     # Everything served to the browser
+│   ├── index.html, login.html, register.html, event.html, ...  # 12 pages total
+│   ├── assets/
+│   │   ├── css/styles.css       # The one shared stylesheet
+│   │   ├── js/                  # chatbot.js, i18n.js, app.js (unused), lottie.min.js
+│   │   ├── i18n/i18n-data.js    # 30+ language translation tables
+│   │   ├── img/                  # Logo, icons, favicons
+│   │   └── lottie/                # Animation JSON files, one per page
+│   └── uploads/                  # User-uploaded files (UPI QR codes), created at runtime
+├── README.md                     # Project overview, setup, and feature summary
+├── ACCESSIBILITY.md              # Plain-language accessibility summary
+├── ACCESSIBILITY_AUDIT.md        # Detailed, issue-by-issue accessibility audit log
+├── SECURITY_AUDIT.md             # Full defensive security review and findings
+├── LOADING_STATES.md             # Loading, network resilience & performance system
+└── docs/                         # You are here
+```
+
+## A note on how this documentation was produced
+
+This documentation was generated by directly reading the project's source
+code — every route in `server.js`, every page under `public/`, the actual
+database schema, and the actual `package.json` dependency list — and
+cross-checking claims against that source rather than inferring them.
+Where the code contains something surprising (an installed but unused
+payment SDK, a database table with no code path that writes to it, a
+JavaScript file no page loads), this documentation says so explicitly.
+That's a deliberate choice: documentation that only describes the happy
+path is less useful, and less trustworthy, than documentation that's
+honest about the whole picture.

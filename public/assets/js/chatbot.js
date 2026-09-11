@@ -140,7 +140,7 @@
       #cvbot-launcher {
         position: fixed; bottom: 20px; right: 20px; z-index: 9999;
         width: 58px; height: 58px; border-radius: 50%;
-        background: linear-gradient(135deg, var(--primary, #6c8cff), var(--primary-2, #4a6cff));
+        background: linear-gradient(135deg, var(--btn-primary-grad-1, #2353fe), var(--btn-primary-grad-2, #0836ff));
         color: #fff; border: none; cursor: pointer; font-size: 26px;
         box-shadow: 0 8px 24px rgba(74,108,255,0.45);
         display: flex; align-items: center; justify-content: center;
@@ -159,7 +159,7 @@
       }
       #cvbot-panel.open { display: flex; }
       #cvbot-head {
-        padding: 14px 16px; background: linear-gradient(135deg, #4a6cff, #3558ee);
+        padding: 14px 16px; background: linear-gradient(135deg, var(--btn-primary-grad-1, #2353fe), var(--btn-primary-grad-2, #0836ff));
         color: #fff; display: flex; align-items: center; justify-content: space-between;
       }
       #cvbot-head strong { font-size: .95rem; }
@@ -168,7 +168,7 @@
       #cvbot-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
       .cvbot-msg { max-width: 85%; padding: 9px 12px; border-radius: 12px; font-size: .86rem; line-height: 1.45; }
       .cvbot-msg.bot { align-self: flex-start; background: rgba(255,255,255,0.08); color: #e8ecff; border-bottom-left-radius: 4px; }
-      .cvbot-msg.user { align-self: flex-end; background: linear-gradient(135deg, #6c8cff, #4a6cff); color: #fff; border-bottom-right-radius: 4px; }
+      .cvbot-msg.user { align-self: flex-end; background: linear-gradient(135deg, var(--btn-primary-grad-1, #2353fe), var(--btn-primary-grad-2, #0836ff)); color: #fff; border-bottom-right-radius: 4px; }
       .cvbot-msg strong { color: #fff; }
       #cvbot-suggestions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
       .cvbot-chip {
@@ -184,7 +184,7 @@
       }
       #cvbot-input:focus { outline: none; border-color: #6c8cff; }
       #cvbot-send {
-        background: linear-gradient(135deg, #6c8cff, #4a6cff); color: #fff; border: none;
+        background: linear-gradient(135deg, var(--btn-primary-grad-1, #2353fe), var(--btn-primary-grad-2, #0836ff)); color: #fff; border: none;
         border-radius: 10px; padding: 0 16px; cursor: pointer; font-size: .9rem;
       }
       @media (max-width: 480px) {
@@ -200,29 +200,52 @@
 
     const launcher = document.createElement('button');
     launcher.id = 'cvbot-launcher';
-    launcher.setAttribute('aria-label', 'Open CampusVibe Assistant');
+    launcher.type = 'button';
+    // aria-haspopup="dialog" + aria-expanded + aria-controls tell AT users
+    // this button discloses a panel, and whether it's currently open —
+    // the same "disclosure button" contract used elsewhere in this app
+    // (e.g. the tab-bar buttons). aria-label stays the accessible name;
+    // it doesn't need to change with state since aria-expanded already
+    // conveys open/closed.
+    launcher.setAttribute('aria-label', 'CampusVibe Assistant chat');
+    launcher.setAttribute('aria-haspopup', 'dialog');
+    launcher.setAttribute('aria-expanded', 'false');
+    launcher.setAttribute('aria-controls', 'cvbot-panel');
     launcher.textContent = '🤔';
 
     const panel = document.createElement('div');
     panel.id = 'cvbot-panel';
+    // Non-modal dialog: the rest of the page stays operable while this is
+    // open (no focus trap, no backdrop), so aria-modal is deliberately
+    // omitted/false rather than true — this matches the actual behavior
+    // (unlike a modal, Tab is free to leave the panel into page content).
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'CampusVibe Assistant chat');
     panel.innerHTML = `
       <div id="cvbot-head">
-        <div><strong>CampusVibe Assistant</strong><span class="sub">Usually replies instantly</span></div>
-        <button id="cvbot-close" aria-label="Close chat">✕</button>
+        <div><strong id="cvbot-title">CampusVibe Assistant</strong><span class="sub">Usually replies instantly</span></div>
+        <button id="cvbot-close" type="button" aria-label="Close chat">✕</button>
       </div>
-      <div id="cvbot-messages"></div>
-      <div id="cvbot-suggestions"></div>
+      <div id="cvbot-messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+      <div id="cvbot-suggestions" role="group" aria-label="Suggested questions"></div>
       <div id="cvbot-inputrow">
+        <label for="cvbot-input" class="sr-only">Type your question</label>
         <input id="cvbot-input" type="text" placeholder="Ask a question..." />
-        <button id="cvbot-send">➤</button>
+        <button id="cvbot-send" type="button" aria-label="Send message">➤</button>
       </div>
     `;
 
     document.body.appendChild(launcher);
     document.body.appendChild(panel);
 
-    launcher.addEventListener('click', () => togglePanel(true));
-    panel.querySelector('#cvbot-close').addEventListener('click', () => togglePanel(false));
+    launcher.addEventListener('click', () => togglePanel(!isPanelOpen()));
+    panel.querySelector('#cvbot-close').addEventListener('click', () => togglePanel(false, { focusLauncher: true }));
+    // Escape closes the panel from anywhere inside it (input, messages,
+    // suggestion chips, close button) and returns focus to the launcher
+    // that opened it, per the standard dismissible-widget expectation.
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); togglePanel(false, { focusLauncher: true }); }
+    });
 
     const input = panel.querySelector('#cvbot-input');
     const sendBtn = panel.querySelector('#cvbot-send');
@@ -233,13 +256,23 @@
     addMessage(pageContextGreeting(), 'bot');
   }
 
-  let panelOpened = false;
-  function togglePanel(open) {
+  function isPanelOpen() {
     const panel = document.getElementById('cvbot-panel');
+    return !!panel && panel.classList.contains('open');
+  }
+
+  function togglePanel(open, { focusLauncher = false } = {}) {
+    const panel = document.getElementById('cvbot-panel');
+    const launcher = document.getElementById('cvbot-launcher');
     panel.classList.toggle('open', open);
-    if (open && !panelOpened) {
-      panelOpened = true;
+    launcher.setAttribute('aria-expanded', String(open));
+    if (open) {
+      // Focus the input every time the panel opens (not just the first
+      // time) so keyboard/screen-reader users always land somewhere
+      // useful instead of the launcher button they just activated.
       document.getElementById('cvbot-input').focus();
+    } else if (focusLauncher) {
+      launcher.focus();
     }
   }
 
@@ -265,6 +298,8 @@
     });
   }
 
+  let chatRequestInFlight = false;
+
   async function sendUserMessage() {
     const input = document.getElementById('cvbot-input');
     const text = input.value.trim();
@@ -278,16 +313,34 @@
       return;
     }
 
+    // ✅ Duplicate-request guard: without this, hitting Enter twice while a
+    // reply is still pending fired a second overlapping request — each one
+    // removes whatever the *current* last message is when it resolves, so a
+    // fast second message could delete the wrong "thinking…" bubble.
+    if (chatRequestInFlight) return;
+    chatRequestInFlight = true;
+    const sendBtn = document.getElementById('cvbot-send');
+    if (sendBtn) sendBtn.disabled = true;
+
     addMessage('Let me think about that...', 'bot');
     const messages = document.getElementById('cvbot-messages');
     const thinkingEl = messages.lastElementChild;
 
     try {
-      const res = await fetch('/api/chatbot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, page: location.pathname })
-      });
+      // ✅ Request timeout handling (item 11): an unbounded fetch here left
+      // "Let me think about that..." on screen forever if the request just
+      // hung — now capped so the chat always resolves one way or another.
+      const res = window.CVLoading
+        ? await window.CVLoading.fetchWithTimeout('/api/chatbot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, page: location.pathname })
+          }, 15000)
+        : await fetch('/api/chatbot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, page: location.pathname })
+          });
       const data = await res.json();
       thinkingEl.remove();
       if (data.handled && data.reply) {
@@ -297,13 +350,37 @@
       }
     } catch (e) {
       thinkingEl.remove();
-      addMessage("I couldn't reach the server just now. Please check the **Help** page, or try again in a moment.", 'bot');
+      addMessage(e && e.isTimeout
+        ? "That's taking longer than expected. Please check the **Help** page, or try again in a moment."
+        : "I couldn't reach the server just now. Please check the **Help** page, or try again in a moment.", 'bot');
+    } finally {
+      chatRequestInFlight = false;
+      if (sendBtn) sendBtn.disabled = false;
     }
+  }
+
+  // Marks the nav link matching the current page with aria-current="page"
+  // so screen-reader/AT users get the same "you are here" signal sighted
+  // users get from the (already-existing) hover/active styling. Loaded on
+  // every page via this one shared script, so it doesn't need duplicating
+  // in each page's own inline script. Best-effort only: if a page's nav
+  // markup doesn't match, this simply does nothing (no error, no visual
+  // change — aria-current has no default styling here).
+  function markCurrentNavLink() {
+    try {
+      const here = location.pathname.replace(/\/index\.html$/, '/') || '/';
+      document.querySelectorAll('.nav a[href]').forEach(a => {
+        const linkPath = new URL(a.getAttribute('href'), location.origin).pathname
+          .replace(/\/index\.html$/, '/') || '/';
+        if (linkPath === here) a.setAttribute('aria-current', 'page');
+      });
+    } catch (_) { /* non-critical enhancement */ }
   }
 
   function init() {
     injectStyles();
     injectMarkup();
+    markCurrentNavLink();
   }
 
   if (document.readyState === 'loading') {

@@ -42,18 +42,39 @@
   function applyToDom(root) {
     const scope = root || document;
     const lang = getLanguage();
+    const table = getStrings()[lang] || {};
+    const isDefaultLang = lang === DEFAULT_LANG;
+
+    // When the current language's table has no entry for a key, t() falls
+    // back to the English string — but the text on screen is then English
+    // inside a page whose <html lang> says (e.g.) "hi". A screen reader
+    // would apply Hindi pronunciation rules to that English fallback text.
+    // Tag just that element `lang="en"` (WCAG 3.1.2 Language of Parts) so
+    // it's announced correctly; clear the override once a real translation
+    // exists (e.g. after switching to a fully-covered language, or if the
+    // string is later added to this language's table).
+    function markFallback(el, key) {
+      if (!isDefaultLang && table[key] == null) el.setAttribute('lang', 'en');
+      else el.removeAttribute('lang');
+    }
 
     scope.querySelectorAll('[data-i18n]').forEach(el => {
       const key = el.getAttribute('data-i18n');
       el.textContent = t(key, lang);
+      markFallback(el, key);
     });
     scope.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
       const key = el.getAttribute('data-i18n-placeholder');
       el.setAttribute('placeholder', t(key, lang));
+      // Not applying the same per-element `lang` override here: AT support
+      // for a `lang` attribute changing how a placeholder is announced is
+      // inconsistent across screen readers, so this is a known, accepted
+      // gap rather than a fix — see ACCESSIBILITY_AUDIT.md A11Y-018.
     });
     scope.querySelectorAll('[data-i18n-title]').forEach(el => {
       const key = el.getAttribute('data-i18n-title');
       el.setAttribute('title', t(key, lang));
+      markFallback(el, key);
     });
 
     document.documentElement.setAttribute('lang', lang);

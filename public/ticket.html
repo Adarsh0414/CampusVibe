@@ -30,10 +30,23 @@
   <meta name="twitter:image" content="https://campusvibe-pu3g.onrender.com/assets/img/icon-512.png" />
 
   <meta name="theme-color" content="#5178ff" />
+  <!-- Item 4 (Part 16): Space Grotesk was previously loaded via an
+       @import inside styles.css placed after other rules — invalid
+       per the CSS spec (an @import must precede all other rules), so
+       browsers silently ignored it and the custom display font never
+       actually loaded. Moved to a real <link>, discoverable by the
+       preload scanner in parallel with styles.css instead of only
+       after it finishes downloading and parsing; preconnect warms the
+       cross-origin connection early. display=swap (kept from the
+       original URL) means body text never waits invisibly on it. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
-  <script src="/assets/js/lottie.min.js"></script>
+  <script src="/assets/js/lottie.min.js" defer></script>
   <script src="/assets/i18n/i18n-data.js"></script>
   <script src="/assets/js/i18n.js"></script>
+  <script src="/assets/js/loading.js"></script>
   <style>
     body { background: var(--bg); }
 
@@ -140,10 +153,26 @@
   </header>
 
   <main>
-    <!-- Loading skeleton -->
-    <div id="loading" class="ticket-wrap">
-      <div class="skeleton" style="height:160px; border-radius:20px 20px 0 0;"></div>
-      <div class="skeleton" style="height:220px; margin-top:2px; border-radius:0 0 20px 20px;"></div>
+    <!-- ✅ Item 1 (Part 8): richer skeleton — was two flat gray blocks
+         (still visually fine, but gave no sense of the actual boarding-pass
+         structure). Now mirrors the real layout: header band, perforated
+         divider, meta-row placeholders, and a QR-sized box — so there's
+         no layout jump when renderTicket() swaps it in (item 5). -->
+    <div id="loading" class="ticket-wrap" aria-busy="true">
+      <div class="skeleton" style="height:120px; border-radius:20px 20px 0 0;" aria-hidden="true"></div>
+      <div class="perf-divider" aria-hidden="true"></div>
+      <div class="ticket-body" style="padding-top:32px; display:flex; gap:24px; flex-wrap:wrap;" aria-hidden="true">
+        <div style="flex:1; min-width:200px;">
+          <span class="skel skel-chip" style="width:120px;"></span>
+          <span class="skel skel-text lg" style="width:60%;margin-top:14px;"></span>
+          <span class="skel skel-text" style="width:75%;"></span>
+          <span class="skel skel-text" style="width:50%;"></span>
+        </div>
+        <span class="skel skel-image" style="width:180px;flex:none;aspect-ratio:1/1;"></span>
+      </div>
+      <div class="perf-divider" style="margin-top:0;" aria-hidden="true"></div>
+      <div class="skeleton" style="height:36px; margin-top:2px; border-radius:0 0 20px 20px;" aria-hidden="true"></div>
+      <p class="sr-only" role="status">Loading your ticket…</p>
     </div>
 
     <!-- Ticket content -->
@@ -174,13 +203,22 @@
     }
 
     try {
-      const res = await fetch(`/api/tickets/${t}`, { credentials: 'include' });
+      // ✅ Item 3/11 (Part 8): bare fetch with no ceiling before — a hung
+      // request left the skeleton spinning forever with nothing telling
+      // the student whether it was still loading or actually broken.
+      const doFetch = window.CVLoading ? window.CVLoading.fetchWithTimeout : (u, o) => fetch(u, o);
+      const res = await doFetch(`/api/tickets/${t}`, { credentials: 'include' }, 12000);
       if (res.status === 401) { location.href = '/login.html'; return; }
       if (!res.ok) { renderError('Ticket not found or access denied.'); return; }
       const { ticket } = await res.json();
       renderTicket(ticket);
     } catch (e) {
-      renderError('Failed to load ticket. Please try again.');
+      // ✅ Item 8 (Part 8): distinguished from the "not found" case above —
+      // this is a transient network/timeout failure, so it's worth a
+      // Retry, whereas "not found" isn't (retrying won't change that).
+      renderError(e && e.isTimeout
+        ? 'Still loading… the connection seems slow.'
+        : "We couldn't reach CampusVibe. Check your connection and try again.", { retry: true, timedOut: e && e.isTimeout });
     }
   });
 
@@ -188,6 +226,23 @@
     const map = { technical:'hdr-technical', cultural:'hdr-cultural', sports:'hdr-sports', workshops:'hdr-workshops' };
     return map[(category||'').toLowerCase()] || 'hdr-default';
   }
+
+  // Image loading (item 6): ticket.qr_code is a data: URL generated
+  // server-side (see docs/04-database-schema.md), so there's no real
+  // network round trip and no loading-state need — but a malformed/
+  // corrupted data URI would otherwise render as a bare broken-image icon
+  // with no explanation. Falls back to a clear message instead, same
+  // pattern as the existing "pending"/"rejected" qr-holder states below.
+  function cvTicketQrError(imgEl) {
+    const wrap = imgEl.closest('.ticket-qr');
+    if (!wrap) return;
+    imgEl.outerHTML = `
+      <div class="qr-holder" style="background:rgba(239,71,111,0.08); border:1px solid rgba(239,71,111,0.3); border-radius:12px; width:180px; height:180px;">
+        <span aria-hidden="true">⚠️</span>
+        <span style="font-size:0.75rem; color:var(--danger); text-align:center; font-weight:600; padding:0 12px;">QR couldn't be displayed — show this ticket page at entry instead</span>
+      </div>`;
+  }
+  window.cvTicketQrError = cvTicketQrError;
 
   function renderTicket(ticket) {
     let participants = [];
@@ -211,7 +266,7 @@
     if (isPaid && ticket.qr_code) {
       qrSection = `
         <div class="ticket-qr">
-          <img src="${ticket.qr_code}" alt="QR Code" class="qr-paid" style="border-radius:12px; width:180px; height:180px;" />
+          <img src="${ticket.qr_code}" alt="QR Code" class="qr-paid" width="180" height="180" style="border-radius:12px; width:180px; height:180px;" onerror="cvTicketQrError(this)" />
           <div style="margin-top:10px; font-size:0.78rem; color:var(--success); font-weight:600; text-align:center;">
             ✅ Scan at entry
           </div>
@@ -330,16 +385,38 @@
     document.getElementById('ticket-content').style.display = 'block';
   }
 
-  function renderError(msg) {
+  // ✅ Item 8 (Part 8): now distinguishes a real transient error (network/
+  // timeout — shows the standard .error-state + Retry, matching every
+  // other page in the app) from an intentional negative result (bad link,
+  // no access — no Retry, since retrying changes nothing; just a way back
+  // to My Tickets, same as before).
+  function renderError(msg, { retry = false, timedOut = false } = {}) {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('ticket-content').style.display = 'block';
-    document.getElementById('root').innerHTML = `
+    document.getElementById('root').innerHTML = retry ? `
+      <div class="error-state" role="alert" style="padding:40px 24px;">
+        <div class="icon" aria-hidden="true">${timedOut ? '⏳' : '📡'}</div>
+        <h3>${msg}</h3>
+        <p class="muted">You can try again, or head back to your tickets.</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <button type="button" class="btn primary" id="retryTicketLoad">Retry</button>
+          <a href="/my-tickets.html" class="btn outline">← My Tickets</a>
+        </div>
+      </div>
+    ` : `
       <div class="alert warn" style="text-align:center; padding:40px 24px;">
         <div style="font-size:2.5rem; margin-bottom:12px;">🎫</div>
         <h3 style="margin-bottom:8px;">${msg}</h3>
         <a href="/my-tickets.html" class="btn outline" style="margin-top:16px;">← My Tickets</a>
       </div>
     `;
+    const retryBtn = document.getElementById('retryTicketLoad');
+    retryBtn?.addEventListener('click', () => location.reload());
+    // ✅ Item 15 (Part 21): the whole boarding-pass area is replaced by
+    // this — move focus to the primary action (Retry when offered,
+    // otherwise the "My Tickets" link) instead of leaving it wherever it
+    // was when the page loaded (usually nowhere focusable yet).
+    window.CVLoading?.focusErrorState(retryBtn || document.querySelector('#root a[href="/my-tickets.html"]'));
   }
 
   function esc(str) {

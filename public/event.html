@@ -29,16 +29,30 @@
   <meta name="twitter:description" content="View event details, register instantly, and get a secure QR e-ticket on CampusVibe — the campus event management platform for fests, workshops, and hackathons." />
   <meta name="twitter:image" content="https://campusvibe-pu3g.onrender.com/assets/img/icon-512.png" />
 
+  <!-- Item 4 (Part 16): Space Grotesk was previously loaded via an
+       @import inside styles.css placed after other rules — invalid
+       per the CSS spec (an @import must precede all other rules), so
+       browsers silently ignored it and the custom display font never
+       actually loaded. Moved to a real <link>, discoverable by the
+       preload scanner in parallel with styles.css instead of only
+       after it finishes downloading and parsing; preconnect warms the
+       cross-origin connection early. display=swap (kept from the
+       original URL) means body text never waits invisibly on it. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" />
   <link rel="stylesheet" href="/assets/css/styles.css" />
-  <script src="/assets/js/lottie.min.js"></script>
+  <script src="/assets/js/lottie.min.js" defer></script>
   <script src="/assets/i18n/i18n-data.js"></script>
   <script src="/assets/js/i18n.js"></script>
+  <script src="/assets/js/loading.js"></script>
 </head>
 <body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
   <header class="cv-header">
     <div class="container header-inner">
       <a href="/" class="brand" style="text-decoration:none;color:inherit">
-        <img src="/assets/img/logo.svg" class="logo" alt="CampusVibe" />
+        <img src="/assets/img/logo.svg" class="logo" alt="" />
         <div class="brand-text">
           <h1>CampusVibe</h1>
           <p class="tagline">Ideal Management, Ideal Moments</p>
@@ -51,8 +65,31 @@
     </div>
   </header>
 
-  <main class="container" style="padding:24px 0;">
-    <div id="root"></div>
+  <main id="main-content" tabindex="-1" class="container" style="padding:24px 0;">
+    <div id="root">
+      <!-- Initial skeleton: mirrors the loaded layout (banner, title, meta,
+           ticket-tier grid, register button) so the page never renders as a
+           blank container while /api/events/:uuid is in flight. Replaced by
+           load() on success/error — see LOADING_STATES.md. -->
+      <div class="card" style="padding:0;overflow:hidden;" aria-hidden="true" aria-busy="true">
+        <span class="skel" style="display:block;height:150px;border-radius:0;"></span>
+        <div style="padding:24px;">
+          <span class="skel skel-text lg" style="width:60%;height:28px;"></span>
+          <span class="skel skel-text" style="width:40%;"></span>
+          <span class="skel skel-text" style="width:90%;"></span>
+          <span class="skel skel-text" style="width:80%;"></span>
+          <div class="flex" style="gap:10px;margin-top:16px;">
+            <span class="skel skel-card" style="width:110px;height:70px;"></span>
+            <span class="skel skel-card" style="width:110px;height:70px;"></span>
+            <span class="skel skel-card" style="width:110px;height:70px;"></span>
+          </div>
+          <div class="flex" style="margin-top:20px;gap:8px;">
+            <span class="skel skel-btn"></span>
+            <span class="skel skel-btn"></span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div id="lottie-event" style="height:160px; opacity:.5;"></div>
   </main>
 
@@ -62,9 +99,18 @@
     const forcedType = (params.get('type') || '').toLowerCase();
     if (!uuid) {
   document.getElementById('root').innerHTML =
-    '<div class="alert warn">Invalid event link</div>';
+    '<div class="alert warn" role="alert">Invalid event link</div>';
   throw new Error('Missing event UUID');
 }
+    // ✅ SEC fix (flagged in security audit Part 1, fixed here): escapes
+    // organizer-controlled event fields before they're interpolated into
+    // innerHTML, so a malicious title/description/location/category can't
+    // inject markup/scripts into this page.
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str == null ? '' : String(str);
+      return div.innerHTML;
+    }
     function formatEventDateRange(startIso, endIso) {
       const dateOpts = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' };
       const timeOpts = { hour: 'numeric', minute: '2-digit', hour12: true };
@@ -79,21 +125,96 @@
       return `${startDateStr}, ${startTimeStr} – ${endDateStr}, ${endTimeStr} IST`;
     }
 
+    // Shared WAI-ARIA "Menu Button" pattern for the Calendar and Share
+    // fallback dropdowns below: aria-haspopup/aria-expanded on the
+    // trigger, role="menu"/"menuitem" with a roving tabindex on the
+    // options, Arrow/Home/End to move between them, and Escape (or
+    // clicking outside) to close and return focus to the trigger. Both
+    // menus previously worked with a mouse (click to toggle, click
+    // outside to dismiss) but were keyboard/screen-reader inoperable:
+    // nothing announced them as menus, arrow keys did nothing, and
+    // Escape didn't close them.
+    function setupMenuButton(btnEl, menuEl) {
+      if (!btnEl || !menuEl) return null;
+      const getItems = () => Array.from(menuEl.querySelectorAll('.share-option'));
+
+      btnEl.setAttribute('aria-haspopup', 'true');
+      btnEl.setAttribute('aria-expanded', 'false');
+      btnEl.setAttribute('aria-controls', menuEl.id);
+
+      function isOpen() { return menuEl.style.display === 'block'; }
+
+      function openMenu(focusIndex) {
+        menuEl.style.display = 'block';
+        btnEl.setAttribute('aria-expanded', 'true');
+        const items = getItems();
+        items.forEach((it, i) => it.setAttribute('tabindex', i === focusIndex ? '0' : '-1'));
+        if (focusIndex != null && items[focusIndex]) items[focusIndex].focus();
+      }
+
+      function closeMenu({ focusButton = false } = {}) {
+        if (!isOpen()) return;
+        menuEl.style.display = 'none';
+        btnEl.setAttribute('aria-expanded', 'false');
+        if (focusButton) btnEl.focus();
+      }
+
+      function focusItem(delta) {
+        const items = getItems();
+        if (!items.length) return;
+        const currentIdx = Math.max(0, items.indexOf(document.activeElement));
+        const next = items[(currentIdx + delta + items.length) % items.length];
+        items.forEach(it => it.setAttribute('tabindex', '-1'));
+        next.setAttribute('tabindex', '0');
+        next.focus();
+      }
+
+      btnEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (isOpen()) closeMenu();
+        else openMenu(0);
+      });
+
+      btnEl.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); openMenu(0); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); openMenu(getItems().length - 1); }
+        else if (e.key === 'Escape' && isOpen()) { e.preventDefault(); closeMenu(); }
+      });
+
+      menuEl.addEventListener('keydown', (e) => {
+        const items = getItems();
+        if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(-1); }
+        else if (e.key === 'Home') { e.preventDefault(); items.forEach(it => it.setAttribute('tabindex', '-1')); items[0]?.setAttribute('tabindex', '0'); items[0]?.focus(); }
+        else if (e.key === 'End') { e.preventDefault(); items.forEach(it => it.setAttribute('tabindex', '-1')); items[items.length - 1]?.setAttribute('tabindex', '0'); items[items.length - 1]?.focus(); }
+        else if (e.key === 'Escape') { e.preventDefault(); closeMenu({ focusButton: true }); }
+        else if (e.key === 'Tab') { closeMenu(); }
+      });
+
+      document.addEventListener('click', () => closeMenu());
+      menuEl.addEventListener('click', (e) => e.stopPropagation());
+
+      return { openMenu, closeMenu, isOpen };
+    }
+
     function setupCalendarMenu(event) {
       const calBtn = document.getElementById('calendarBtn');
       const calMenu = document.getElementById('calendarMenu');
       const googleOpt = document.getElementById('googleCalOption');
       if (!calBtn || !calMenu) return;
 
-      calBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        calMenu.style.display = calMenu.style.display === 'block' ? 'none' : 'block';
-      });
-      document.addEventListener('click', () => { calMenu.style.display = 'none'; });
-      calMenu.addEventListener('click', (e) => e.stopPropagation());
+      const menu = setupMenuButton(calBtn, calMenu);
+
+      const icsOpt = calMenu.querySelector('a.share-option');
+      // The .ics link performs a real navigation/download rather than an
+      // in-page action, so it can't reuse the same closeMenu() call sites
+      // as the button-based options below (the click isn't intercepted).
+      // Still close the menu so it doesn't linger open after the download
+      // starts, without preventing the link's default behavior.
+      icsOpt?.addEventListener('click', () => { menu.closeMenu(); });
 
       googleOpt?.addEventListener('click', () => {
-        calMenu.style.display = 'none';
+        menu.closeMenu({ focusButton: true });
         const toGCalDate = (isoStr) => {
           const d = new Date(isoStr);
           const pad = n => String(n).padStart(2, '0');
@@ -122,7 +243,10 @@
       // On devices/browsers that support it (most phones, some desktops),
       // prefer the native share sheet — it already lists WhatsApp,
       // Instagram, and whatever else the person has installed, without us
-      // needing to guess which apps to list.
+      // needing to guess which apps to list. In this branch #shareBtn is
+      // a plain action button (no aria-haspopup/aria-expanded is added),
+      // which is the correct semantics here: it doesn't disclose an
+      // in-page menu, it invokes the OS share sheet directly.
       if (navigator.share) {
         shareBtn.addEventListener('click', async () => {
           try {
@@ -135,12 +259,7 @@
       }
 
       // Fallback: a small custom menu with the most common platforms.
-      shareBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        shareMenu.style.display = shareMenu.style.display === 'block' ? 'none' : 'block';
-      });
-      document.addEventListener('click', () => { shareMenu.style.display = 'none'; });
-      shareMenu.addEventListener('click', (e) => e.stopPropagation());
+      const menu = setupMenuButton(shareBtn, shareMenu);
 
       const links = {
         whatsapp: `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}`,
@@ -151,7 +270,7 @@
       shareMenu.querySelectorAll('.share-option').forEach(btn => {
         btn.addEventListener('click', async () => {
           const kind = btn.dataset.share;
-          shareMenu.style.display = 'none';
+          menu.closeMenu({ focusButton: true });
 
           if (kind === 'copy' || kind === 'instagram') {
             try {
@@ -167,6 +286,11 @@
               ta.select();
               try { document.execCommand('copy'); } catch (_) {}
               document.body.removeChild(ta);
+              // The temporary textarea above briefly took focus to run the
+              // execCommand('copy') fallback; return it to the trigger
+              // button (already the target of closeMenu's focusButton
+              // above) instead of leaving focus on <body>.
+              shareBtn.focus();
             }
             shareToast(kind === 'instagram'
               ? 'Link copied! Paste it into your Instagram bio or story.'
@@ -185,6 +309,9 @@
         el = document.createElement('div');
         el.id = 'shareToast';
         el.className = 'share-toast';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        el.setAttribute('aria-atomic', 'true');
         document.body.appendChild(el);
       }
       el.textContent = text;
@@ -193,10 +320,60 @@
       el._hideTimer = setTimeout(() => el.classList.remove('show'), 2600);
     }
 
+    function renderLoadError(isTimeout) {
+      document.getElementById('root').innerHTML = `
+        <div class="error-state" role="alert">
+          <div class="icon" aria-hidden="true">${isTimeout ? '⏳' : '📡'}</div>
+          <h3>${isTimeout ? 'Still loading…' : 'Unable to load this event'}</h3>
+          <p class="muted">${isTimeout ? 'The connection seems slow. You can try again.' : "We couldn't reach CampusVibe. Check your connection and try again."}</p>
+          <button type="button" class="btn outline" id="retryEventLoad">Retry</button>
+        </div>
+      `;
+      const retryBtn = document.getElementById('retryEventLoad');
+      retryBtn?.addEventListener('click', load);
+      // ✅ Item 15 (Part 21): this replaces the entire #root content (the
+      // whole page's reason for existing), so there's nothing else on the
+      // page for focus to sensibly land on otherwise — move it to Retry.
+      window.CVLoading?.focusErrorState(retryBtn);
+    }
+
     async function load() {
-      const res = await fetch(`/api/events/${uuid}`);
-      if (!res.ok) { document.getElementById('root').innerHTML = '<div class="alert warn">Event not found</div>'; return; }
-      const { event } = await res.json();
+      // Offline/recovery (Part 3, item 21): if this event was viewed
+      // successfully before in this tab, keep that copy around so a dead
+      // connection on a re-visit degrades to "showing saved details" rather
+      // than a dead end. Never used for the register action itself (that
+      // always needs a live request — see the register handler below).
+      const cacheKey = `event:${uuid}`;
+      let event;
+      let usedCache = false;
+
+      try {
+        const res = window.CVLoading
+          ? await window.CVLoading.fetchWithTimeout(`/api/events/${uuid}`, {}, 12000)
+          : await fetch(`/api/events/${uuid}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            document.getElementById('root').innerHTML = '<div class="alert warn" role="alert">Event not found</div>';
+            return;
+          }
+          throw new Error('Failed to load event (' + res.status + ')');
+        }
+        ({ event } = await res.json());
+        window.CVLoading?.cacheSet(cacheKey, event);
+      } catch (err) {
+        // Network failure / timeout / server error. Previously uncaught (for
+        // the network-failure case), which left #root frozen on its last
+        // state (blank on first load) forever. Now: fall back to a saved
+        // copy if one exists, otherwise show a real ERROR state with Retry.
+        const cached = window.CVLoading?.cacheGet(cacheKey);
+        if (cached) {
+          event = cached.data;
+          usedCache = true;
+        } else {
+          renderLoadError(err && err.isTimeout);
+          return;
+        }
+      }
       const priceSingle = Math.round(((event.price_single_cents ?? event.price_cents ?? 9000) / 100));
       const priceDuo = Math.round(((event.price_duo_cents ?? 18000) / 100));
       const priceTrio = Math.round(((event.price_trio_cents ?? 25000) / 100));
@@ -218,28 +395,28 @@
       r.innerHTML = `
         <div class="card" style="padding:0;overflow:hidden;">
           <div class="thumb thumb-${catKey}" style="height:150px;">
-            <span class="cat-icon-bg">${catIcon}</span>
-            <span class="cat-chip cat-${catKey}">${catIcon} ${event.category || 'Event'}</span>
+            <span class="cat-icon-bg" aria-hidden="true">${catIcon}</span>
+            <span class="cat-chip cat-${catKey}"><span aria-hidden="true">${catIcon}</span> ${escapeHtml(event.category || 'Event')}</span>
           </div>
           <div style="padding:24px;">
           <div class="flex" style="align-items:center; gap:10px; margin-bottom:6px;">
             ${isEnded ? '<span class="tk-status status-rejected">Event Ended</span>' : ''}
           </div>
-          <h2 style="margin-top:0;">${event.title}</h2>
-          <div class="muted">📅 ${timeRange} ${event.location ? '• 📍 ' + event.location : ''}</div>
-          <p>${event.description || ''}</p>
+          <h2 style="margin-top:0;">${escapeHtml(event.title)}</h2>
+          <div class="muted"><span aria-hidden="true">📅</span> ${escapeHtml(timeRange)} ${event.location ? '• <span aria-hidden="true">📍</span> ' + escapeHtml(event.location) : ''}</div>
+          <p>${escapeHtml(event.description || '')}</p>
           <p><b>Capacity:</b> ${event.capacity ? `${event.capacity} (${event.remaining} tickets left)` : 'Not specified'}</p>
 
           <div class="flex-col">
-            <label class="label">Choose Ticket Type</label>
-            <div class="tier-price-grid" id="tierGrid"></div>
+            <label class="label" id="ticketTypeLabel">Choose Ticket Type</label>
+            <div class="tier-price-grid" id="tierGrid" role="radiogroup" aria-labelledby="ticketTypeLabel"></div>
             <p class="muted" style="margin-top:2px;">Only tiers enabled by the organizer are selectable: ${allowed.join(', ') || 'single'}.</p>
           </div>
 
           ${event.discounts_enabled ? `
           <div class="row" style="margin-top:10px;">
             <div class="flex-col">
-              <label class="label">Discount code</label>
+              <label class="label" for="discount">Discount code</label>
               <input id="discount" class="input" placeholder="Discount code (optional)" />
             </div>
             <div></div>
@@ -256,20 +433,20 @@
             <div class="flex" style="gap:8px;">
               <button class="btn primary" id="reg">Register</button>
               <div class="share-wrap" style="position:relative;display:inline-block;">
-                <button class="btn outline" id="calendarBtn" type="button">📅 Add to Calendar</button>
-                <div id="calendarMenu" class="share-menu" style="display:none;">
-                  <a class="share-option" href="/api/events/${event.uuid}/calendar.ics" style="text-decoration:none;">⬇️ Download (.ics — Outlook, Apple Calendar)</a>
-                  <button type="button" class="share-option" id="googleCalOption">📅 Add to Google Calendar</button>
+                <button class="btn outline" id="calendarBtn" type="button"><span aria-hidden="true">📅</span> Add to Calendar</button>
+                <div id="calendarMenu" class="share-menu" role="menu" aria-label="Calendar options" style="display:none;">
+                  <a class="share-option" role="menuitem" tabindex="-1" href="/api/events/${event.uuid}/calendar.ics" style="text-decoration:none;"><span aria-hidden="true">⬇️</span> Download (.ics — Outlook, Apple Calendar)</a>
+                  <button type="button" class="share-option" role="menuitem" tabindex="-1" id="googleCalOption"><span aria-hidden="true">📅</span> Add to Google Calendar</button>
                 </div>
               </div>
               <div class="share-wrap" style="position:relative;display:inline-block;">
-                <button class="btn outline" id="shareBtn" type="button">🔗 Share</button>
-                <div id="shareMenu" class="share-menu" style="display:none;">
-                  <button type="button" class="share-option" data-share="whatsapp">💬 WhatsApp</button>
-                  <button type="button" class="share-option" data-share="facebook">📘 Facebook</button>
-                  <button type="button" class="share-option" data-share="twitter">🐦 X (Twitter)</button>
-                  <button type="button" class="share-option" data-share="instagram">📸 Instagram</button>
-                  <button type="button" class="share-option" data-share="copy">🔗 Copy Link</button>
+                <button class="btn outline" id="shareBtn" type="button"><span aria-hidden="true">🔗</span> Share</button>
+                <div id="shareMenu" class="share-menu" role="menu" aria-label="Share options" style="display:none;">
+                  <button type="button" class="share-option" role="menuitem" tabindex="-1" data-share="whatsapp"><span aria-hidden="true">💬</span> WhatsApp</button>
+                  <button type="button" class="share-option" role="menuitem" tabindex="-1" data-share="facebook"><span aria-hidden="true">📘</span> Facebook</button>
+                  <button type="button" class="share-option" role="menuitem" tabindex="-1" data-share="twitter"><span aria-hidden="true">🐦</span> X (Twitter)</button>
+                  <button type="button" class="share-option" role="menuitem" tabindex="-1" data-share="instagram"><span aria-hidden="true">📸</span> Instagram</button>
+                  <button type="button" class="share-option" role="menuitem" tabindex="-1" data-share="copy"><span aria-hidden="true">🔗</span> Copy Link</button>
                 </div>
               </div>
             </div>
@@ -277,6 +454,12 @@
           </div>
         </div>
       `;
+
+      if (usedCache) {
+        // Real content is already painted above — don't hide it behind a
+        // loading/error state, just be honest that it's a saved copy.
+        window.CVLoading?.showBanner("You're offline — showing saved event details.", 'cached');
+      }
 
       setupShareMenu(event);
       setupCalendarMenu(event);
@@ -292,8 +475,8 @@
           const div = document.createElement('div');
           div.className = 'row';
           div.innerHTML = `
-            <div class="flex-col"><label class="label">Participant ${i} Name</label><input class="input" id="pName${i}" placeholder="Full name" /></div>
-            <div class="flex-col"><label class="label">Participant ${i} Registration No.</label><input class="input" id="pRoll${i}" placeholder="Roll/Reg No." /></div>
+            <div class="flex-col"><label class="label" for="pName${i}">Participant ${i} Name</label><input class="input" id="pName${i}" placeholder="Full name" /></div>
+            <div class="flex-col"><label class="label" for="pRoll${i}">Participant ${i} Registration No.</label><input class="input" id="pRoll${i}" placeholder="Roll/Reg No." /></div>
           `;
           cont.appendChild(div);
         }
@@ -315,27 +498,58 @@
       }
 
       const tierLabels = { single: 'Single', duo: 'Duo', trio: 'Trio' };
+      const TIER_ORDER = ['single', 'duo', 'trio'];
+
+      // Selecting a tier used to only be possible by clicking a plain <div>
+      // with no keyboard handler at all — keyboard-only users could not
+      // register for any event, since the ticket-type step blocked the
+      // whole flow. Fixed by making #tierGrid a real ARIA radiogroup: each
+      // card is role="radio" with aria-checked reflecting selection, uses a
+      // roving tabindex (only the checked card is tabbable — Tab moves past
+      // the whole group in one stop, matching native <input type="radio">
+      // behavior), and Arrow keys / Enter / Space operate it, per the WAI-ARIA
+      // Authoring Practices radio-group pattern.
+      function selectTier(t, { focus = false } = {}) {
+        if (!allowed.includes(t)) return;
+        type = t;
+        renderTierGrid();
+        renderParticipants(type);
+        updatePriceDisplay();
+        updateRegButtonState();
+        if (focus) document.querySelector(`.tier-price-card[data-tier="${type}"]`)?.focus();
+      }
+
       function renderTierGrid() {
         const grid = document.getElementById('tierGrid');
         grid.innerHTML = ['single', 'duo', 'trio'].map(t => {
           const isAllowedTier = allowed.includes(t);
           const selected = t === type;
           return `
-            <div class="tier-price-card ${selected ? 'selected' : ''} ${isAllowedTier ? '' : 'disabled'}" data-tier="${t}">
-              <div class="tier-name">${tierLabels[t]}</div>
+            <div class="tier-price-card ${selected ? 'selected' : ''} ${isAllowedTier ? '' : 'disabled'}"
+                 data-tier="${t}" role="radio" aria-checked="${selected}"
+                 ${isAllowedTier ? '' : 'aria-disabled="true"'}
+                 tabindex="${isAllowedTier && selected ? '0' : '-1'}">
+              <div class="tier-name">${tierLabels[t]}${isAllowedTier ? '' : ' <span class="sr-only">(not offered for this event)</span>'}</div>
               <div class="tier-amount">${isAllowedTier ? '₹' + currentPrice(t) : '—'}</div>
             </div>
           `;
         }).join('');
         grid.querySelectorAll('.tier-price-card').forEach(card => {
-          card.addEventListener('click', () => {
-            const t = card.dataset.tier;
-            if (!allowed.includes(t)) return;
-            type = t;
-            renderTierGrid();
-            renderParticipants(type);
-            updatePriceDisplay();
-            updateRegButtonState();
+          card.addEventListener('click', () => selectTier(card.dataset.tier));
+          card.addEventListener('keydown', (e) => {
+            const allowedOrder = TIER_ORDER.filter(t => allowed.includes(t));
+            if (!allowedOrder.length) return;
+            const posInAllowed = allowedOrder.indexOf(type);
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              selectTier(allowedOrder[(posInAllowed + 1) % allowedOrder.length], { focus: true });
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              selectTier(allowedOrder[(posInAllowed - 1 + allowedOrder.length) % allowedOrder.length], { focus: true });
+            } else if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              selectTier(card.dataset.tier);
+            }
           });
         });
       }
@@ -345,7 +559,11 @@
       updatePriceDisplay();
       updateRegButtonState();
 
-      document.getElementById('reg').addEventListener('click', async () => {
+      document.getElementById('reg').addEventListener('click', window.CVLoading
+        ? window.CVLoading.guardSubmit(document.getElementById('reg'), handleRegisterClick)
+        : handleRegisterClick);
+
+      async function handleRegisterClick() {
         const isAllowedNow = allowed.includes(type);
         if (!isAllowedNow || isFull || isEnded) return;
         const discountEl = document.getElementById('discount');
@@ -356,15 +574,39 @@
           participants.push({ name: document.getElementById(`pName${i}`).value.trim(), roll_number: document.getElementById(`pRoll${i}`).value.trim() });
         }
         const body = { discount_code: code, ticket_type: type, participants };
-        const res = await fetch(`/api/events/${event.uuid}/register`, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body) });
+        let res;
+        try {
+          // Registration is a state-changing, non-idempotent request — no
+          // automatic retry (per spec §12). guardSubmit() above stops a
+          // double-click from firing this twice; the button is disabled +
+          // shows "Registering…" for the whole round trip via setButtonLoading.
+          res = window.CVLoading
+            ? await window.CVLoading.fetchWithTimeout(`/api/events/${event.uuid}/register`, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body) }, 20000)
+            : await fetch(`/api/events/${event.uuid}/register`, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(body) });
+        } catch (err) {
+          const msg = err && err.isTimeout
+            ? 'This is taking longer than expected. Please check your connection — if the seat was reserved you will see it under My Tickets.'
+            : "Couldn't reach CampusVibe. Please check your connection and try again.";
+          document.querySelector('#root > .alert.warn')?.remove();
+          document.getElementById('root').insertAdjacentHTML('afterbegin', `<div class="alert warn" role="alert" tabindex="-1">${msg}</div>`);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          document.querySelector('#root > .alert.warn')?.focus();
+          return;
+        }
         if (res.status === 401) { location.href = '/login.html'; return; }
         const txt = await res.text();
         if (res.status >= 400) {
           let errMsg = txt;
           try { errMsg = JSON.parse(txt).error || txt; } catch (_) {}
           document.querySelector('#root > .alert.warn')?.remove();
-          document.getElementById('root').insertAdjacentHTML('afterbegin', `<div class="alert warn">${errMsg}</div>`);
+          document.getElementById('root').insertAdjacentHTML('afterbegin', `<div class="alert warn" role="alert" tabindex="-1">${errMsg}</div>`);
           window.scrollTo({ top: 0, behavior: 'smooth' });
+          // Move focus to the error itself, not just scroll to it — a screen-reader
+          // user submitting the form is focused on the Register button, which is now
+          // below the freshly-inserted error; without this the error is announced
+          // once (via role="alert") but then silently left behind as unreachable
+          // context once they resume tabbing.
+          document.querySelector('#root > .alert.warn')?.focus();
           return;
         }
         const data = JSON.parse(txt);
@@ -374,18 +616,25 @@
         } else if (data.ticket) {
           location.href = `/ticket.html?t=${data.ticket.uuid}`;
         }
-      });
+      }
     }
     load();
-    try {
-      if (window.lottie) {
-        window.lottie.loadAnimation({
-          container: document.getElementById('lottie-event'),
-          renderer: 'svg', loop: true, autoplay: true,
-          path: '/assets/lottie/event.json'
-        });
-      }
-    } catch (e) { /* ignore */ }
+    // Now that lottie.min.js loads with `defer` (item 4: progressive
+    // loading), it's no longer guaranteed to have executed by the time
+    // this runs synchronously during parsing. DOMContentLoaded fires only
+    // after every deferred script has already run, so wrapping here
+    // guarantees `window.lottie` is defined when this checks for it.
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        if (window.lottie) {
+          window.lottie.loadAnimation({
+            container: document.getElementById('lottie-event'),
+            renderer: 'svg', loop: true, autoplay: true,
+            path: '/assets/lottie/event.json'
+          });
+        }
+      } catch (e) { /* ignore */ }
+    });
   </script>
   <footer class="cv-footer">
     <div class="container" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">

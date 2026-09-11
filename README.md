@@ -8,6 +8,22 @@ CampusVibe is a full-stack web application built for efficient campus event mana
 
 [CampusVibe](https://campusvibe-pu3g.onrender.com)
 
+## Documentation
+
+This README is a quick-start overview. Deeper documentation lives in a
+small set of focused files, each covering one concern end-to-end:
+
+| Document | Covers |
+|---|---|
+| **[`docs/`](./docs/README.md)** | Full technical reference: architecture, database schema, every API endpoint, auth & roles, page-by-page frontend walkthrough, feature deep dives, deployment checklist, and known limitations/tech debt. |
+| **[`ACCESSIBILITY.md`](./ACCESSIBILITY.md)** | Plain-language accessibility summary and honest WCAG 2.2 conformance statement. |
+| **[`ACCESSIBILITY_AUDIT.md`](./ACCESSIBILITY_AUDIT.md)** | The full, issue-by-issue accessibility engineering log — 19 issues found and fixed, with WCAG references, root causes, and verification notes. |
+| **[`SECURITY_AUDIT.md`](./SECURITY_AUDIT.md)** | Full defensive security review: threat model, trust boundaries, and every finding (`SEC-001` onward) with severity, fix, and verification. |
+| **[`LOADING_STATES.md`](./LOADING_STATES.md)** | Loading states, network resilience, retry policy, and performance/flow testing results, covering the whole app end-to-end. |
+
+Each of the above is self-contained — no need to read them in order or
+cross-reference a separate tracker.
+
 ## Enhancements & Improvements
 
 A running log of the larger features/fixes added on top of the original build :
@@ -35,6 +51,12 @@ A running log of the larger features/fixes added on top of the original build :
 - **E-ticket redesign** — boarding-pass style ticket (perforated divider, category-colored header, QR glow states) used consistently for both pending and confirmed tickets.
 
 - Assorted fixes: event page banner art now matches the homepage's category art, the Profile page's Cancel button actually discards unsaved edits, a Profile link was added to the homepage nav, the print button on the ticket page, and the language-selector layout on a few pages.
+
+- **Accessibility remediation pass** — a 7-part audit found and fixed 19 distinct accessibility issues, including a P0 keyboard-blocking bug in the ticket-type selector, missing keyboard support in the dashboard/attendance tab bars and the chatbot/dropdown menus, insufficient color contrast on primary/danger buttons, and redundant/unlabeled icons. See [`ACCESSIBILITY.md`](./ACCESSIBILITY.md) for the summary and honest conformance statement, and [`ACCESSIBILITY_AUDIT.md`](./ACCESSIBILITY_AUDIT.md) for the full engineering log.
+
+- **Security audit & hardening** — a full defensive review of input validation, authentication, Google OAuth, and authorization found and fixed several IDOR/BOLA-style access-control gaps (including two Critical/High findings in legacy attendance endpoints), plus smaller input-validation and auth issues. Every finding, fix, and verification step is in [`SECURITY_AUDIT.md`](./SECURITY_AUDIT.md).
+
+- **Loading, network resilience & performance pass** — every page now shows a real loading/skeleton state, a labeled stale-cache or error-with-retry state, and never a blank or frozen screen, even offline. Includes a documented no-auto-retry policy for sensitive operations, and results from throttled-network (Slow 3G) and real-user-flow testing under concurrency. Full writeup in [`LOADING_STATES.md`](./LOADING_STATES.md).
 
 ## Features
 
@@ -170,10 +192,13 @@ The language selector (top navigation, every page) covers: **English, Hindi, Ben
 │   │   │   └── i18n-data.js
 │   │   ├── img/
 │   │   └── lottie/
-│   └── uploads/
-│       ├── payment_proofs/
-│       └── upi_qr/
-└── node_modules(Generated automatically after npm install.)/
+│   └── uploads/                    # Flat folder — organizer-uploaded UPI QR images (created at runtime)
+├── docs/                            # Full documentation set (architecture, API reference, schema, etc.)
+├── ACCESSIBILITY.md                  # Accessibility summary + conformance statement
+├── ACCESSIBILITY_AUDIT.md            # Full accessibility audit log (19 issues, all fixed)
+├── SECURITY_AUDIT.md                 # Full security review (threat model + findings)
+├── LOADING_STATES.md                 # Loading, network resilience & performance documentation
+└── node_modules/                     # Generated automatically after npm install
 ```
 
 - **`.env.example`**: An example file for environment variables. You should create a `.env` file based on this.
@@ -183,7 +208,7 @@ The language selector (top navigation, every page) covers: **English, Hindi, Ben
 - **`public/`**: The frontend of the application, with HTML, CSS, and JavaScript files.
     - **`assets/js/i18n.js`** + **`assets/i18n/i18n-data.js`**: the translation engine and string table for the language selector.
     - **`assets/js/chatbot.js`**: the self-contained floating chat widget (injects its own markup/styles into every page that includes it).
-    - **`uploads/`**: Stores user-uploaded files, such as payment proofs and UPI QR codes.
+    - **`uploads/`**: Stores organizer-uploaded UPI QR code images. (Student payment "proof" is a submitted transaction ID / UTR text field, not a file upload — there's no proof-screenshot upload endpoint in the current code.)
 - **`node_modules/`**: Contains all the installed Node.js modules (not included in the shared zip — run `npm install` to generate it for your platform).
 
 ## Setup and Installation

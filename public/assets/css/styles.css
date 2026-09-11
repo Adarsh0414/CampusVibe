@@ -27,6 +27,19 @@
   --border: #223066;           /* Subtle borders */
   --border-2: #2a3771;
 
+  /* Solid-button gradient stops — deliberately NOT the same as --primary/
+     --primary-2/--danger above. Those pass contrast fine everywhere else
+     they're used (outline-button text/border on dark surfaces, links,
+     chips), but the original --primary→--primary-2 and --danger→#d43d61
+     gradients were too light to meet 4.5:1 against the buttons' white-ish
+     text (~2.9:1–4.2:1 measured across the whole gradient, worst at the
+     top). These are the same hue, darkened just enough to clear 4.5:1 at
+     every point in the gradient — see ACCESSIBILITY_AUDIT.md A11Y-017. */
+  --btn-primary-grad-1: #2353fe;
+  --btn-primary-grad-2: #0836ff;
+  --btn-danger-grad-1: #c7113c;
+  --btn-danger-grad-2: #9c223f;
+
   /* Category accent colors */
   --cat-technical: #4a6cff;
   --cat-cultural: #ff6fa1;
@@ -159,6 +172,7 @@ body::after {
 .nav { display: flex; align-items: center; gap: 12px; }
 .nav a { color: var(--fg); padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid transparent; transition: background var(--trans-fast), border var(--trans-fast), color var(--trans-fast); }
 .nav a:hover { background: rgba(108,140,255,0.12); border-color: var(--border-2); }
+.nav a[aria-current="page"] { font-weight: 700; border-color: var(--border-2); }
 
 /* =========================
    Hero / Landing
@@ -220,7 +234,7 @@ body::after {
 .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(108,140,255,0.35); }
 
 .btn.primary {
-  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+  background: linear-gradient(180deg, var(--btn-primary-grad-1), var(--btn-primary-grad-2));
   border-color: rgba(255,255,255,0.06);
   box-shadow: 0 10px 25px rgba(108,140,255,.25);
 }
@@ -232,7 +246,7 @@ body::after {
 }
 .btn.outline:hover { background: rgba(108,140,255,0.16); transform: translateY(-1px); }
 
-.btn.danger { background: linear-gradient(180deg, var(--danger), #d43d61); }
+.btn.danger { background: linear-gradient(180deg, var(--btn-danger-grad-1), var(--btn-danger-grad-2)); }
 .btn.danger:hover { transform: translateY(-1px); filter: brightness(1.03); }
 
 .pulse { animation: pulse 1.4s infinite; }
@@ -298,6 +312,76 @@ body::after {
 .btn.outline:focus-visible, .btn.primary:focus-visible, .btn.danger:focus-visible, .nav a:focus-visible {
   box-shadow: 0 0 0 3px rgba(108,140,255,0.35);
 }
+
+/* =========================
+   Accessibility: visually-hidden helper
+   ========================= */
+/* Standard "screen reader only" utility: keeps text in the accessibility
+   tree (announced by AT) while removing it from the visual layout. Used to
+   add words like "(required)" or extra context that would be visual clutter
+   for sighted users but are needed for a meaningful accessible name. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =========================
+   Accessibility: Skip link
+   ========================= */
+/* Visually hidden until keyboard-focused, per WCAG 2.4.1 (Bypass Blocks).
+   Positioned off-screen with `left` (not display:none) so it stays in the
+   accessibility tree and can receive focus via Tab from the very top of
+   the page, before the header/nav. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 10000;
+  background: var(--primary);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 0 0 10px 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+/* Focus outline for the skip target itself: main is given tabindex="-1"
+   so focus can be programmatically moved there; suppress the default
+   browser ring on that specific programmatic focus so it doesn't look like
+   an interactive element gained a permanent border, while keyboard/other
+   focusable descendants keep their own :focus-visible styles untouched. */
+main:focus {
+  outline: none;
+}
+
+/* =========================
+   Accessibility: live regions / status messages
+   ========================= */
+/* Used for toast notifications and inline form success/error banners that
+   are announced to screen readers via aria-live/role="status"|"alert".
+   Visual style is unchanged from what already existed on the .alert /
+   #toast elements — this just documents intent, no visual side effects. */
+[aria-live], [role="status"], [role="alert"] { }
+
+/* ✅ Item 5 (Part 17): #msg is the shared status/alert slot on the auth-style
+   forms (login/register/organizer-apply/profile/payment). It's empty until a
+   submit resolves, then an `.alert` is inserted into it — on a fast response
+   this lands well inside the "recent input" window browsers already exclude
+   from Cumulative Layout Shift, but on a slow connection the response can
+   arrive seconds later, by which point it's a genuine, countable shift that
+   pushes the form/card below it down. `#msg` sits *above* the form on three
+   of these five pages, so it's the primary interactive content that moves.
+   overflow:hidden keeps the alert's own margin contained inside this box
+   (rather than collapsing out of it) so the reserved height is deterministic. */
+#msg { min-height: 48px; overflow: hidden; }
 
 /* Home cards excerpt paragraph spacing */
 .grid .card p { margin: 8px 0 0; color: var(--muted); }
@@ -371,10 +455,10 @@ body::before {
    Modern Header CTA polish
    ========================= */
 .cv-header .nav a.nav-cta {
-  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+  background: linear-gradient(180deg, var(--btn-primary-grad-1), var(--btn-primary-grad-2));
   color: #fff; box-shadow: 0 8px 20px rgba(108,140,255,.3); border-color: transparent;
 }
-.cv-header .nav a.nav-cta:hover { filter: brightness(1.08); background: linear-gradient(180deg, var(--primary), var(--primary-2)); }
+.cv-header .nav a.nav-cta:hover { filter: brightness(1.08); background: linear-gradient(180deg, var(--btn-primary-grad-1), var(--btn-primary-grad-2)); }
 
 /* =========================
    Rich Footer
@@ -438,7 +522,7 @@ body::before {
 }
 .category-pill:hover { transform: translateY(-2px); }
 .category-pill.active {
-  background: linear-gradient(180deg, var(--primary), var(--primary-2)); border-color: transparent; color: #fff;
+  background: linear-gradient(180deg, var(--btn-primary-grad-1), var(--btn-primary-grad-2)); border-color: transparent; color: #fff;
   box-shadow: 0 8px 20px rgba(108,140,255,.3);
 }
 
@@ -472,7 +556,7 @@ body::before {
 .step-item { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius-md); background: rgba(255,255,255,0.03); border: 1px solid var(--border); }
 .step-num {
   flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
-  background: linear-gradient(180deg, var(--primary), var(--primary-2)); color: #fff; font-weight: 700; font-size: .9rem;
+  background: linear-gradient(180deg, var(--btn-primary-grad-1), var(--btn-primary-grad-2)); color: #fff; font-weight: 700; font-size: .9rem;
 }
 .step-item h5 { margin: 0 0 4px; font-size: .96rem; }
 .step-item p { margin: 0; color: var(--muted); font-size: .87rem; }
@@ -509,6 +593,9 @@ body::before {
 }
 .tier-price-card.selected { border-color: var(--primary); background: rgba(108,140,255,0.14); box-shadow: 0 8px 20px rgba(108,140,255,.2); }
 .tier-price-card.disabled { opacity: .35; cursor: not-allowed; }
+/* Now a keyboard-focusable role="radio" (see event.html) — needs its own
+   visible focus indicator since it's a styled div, not a native input. */
+.tier-price-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .tier-price-card .tier-name { font-size: .82rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .tier-price-card .tier-amount { font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
 
@@ -587,7 +674,14 @@ body::before {
   color: var(--muted); cursor: pointer; font-weight: 600; font-size: .92rem; transition: all var(--trans-fast);
 }
 .section-tab:hover { color: var(--fg); border-color: var(--primary); }
-.section-tab.active { background: linear-gradient(180deg, var(--primary), var(--primary-2)); color: #fff; border-color: transparent; }
+.section-tab.active { background: linear-gradient(180deg, var(--btn-primary-grad-1), var(--btn-primary-grad-2)); color: #fff; border-color: transparent; }
+.section-tab:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(108,140,255,0.35); }
+/* Tab panels get tabindex="0" per the WAI-ARIA Tabs pattern (so they're
+   reachable as a landmark and can receive focus after a programmatic tab
+   switch, e.g. "Edit" jumping to the Create tab) but are focused
+   programmatically, not by direct user Tab presses — suppress the ring
+   here the same way the skip-link's `main` target does. */
+.tab-panel:focus { outline: none; }
 
 .pending-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--danger); color: #fff; font-size: .68rem; font-weight: 700; margin-left: 6px; }
 
@@ -644,7 +738,10 @@ body::before {
    tokens — aliased here rather than renaming everything else in the
    codebase, so nothing already working elsewhere is put at risk).
    ========================= */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap');
+/* Item 4 (Part 16): moved to a <link> in each page's <head> — see that
+   comment for why. This @import (placed after other rules in the file)
+   was invalid per the CSS spec and browsers were silently ignoring it,
+   so 'Space Grotesk' below was never actually loading. */
 
 :root {
   --r-sm: var(--radius-sm);
@@ -666,6 +763,142 @@ body::before {
   border-radius: var(--radius-md);
 }
 @keyframes skeletonLoad { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* =========================
+   Loading / Skeleton Design System (LOADING_STATES.md)
+   Reusable primitives: .skel (base) + shape helpers, composed into
+   .skel-card / .skel-row / .skel-dashboard blocks by JS (see loading.js)
+   or hand-authored per page. Kept visually consistent with .skeleton
+   above (same shimmer) so old and new skeletons never look mismatched.
+   ========================= */
+.skel {
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.05) 75%);
+  background-size: 200% 100%;
+  animation: skeletonLoad 1.4s infinite;
+  border-radius: var(--radius-sm);
+  display: block;
+}
+.skel-text { height: 14px; border-radius: 6px; margin: 6px 0; width: 100%; }
+.skel-text.sm { height: 10px; width: 60%; }
+.skel-text.lg { height: 20px; width: 70%; }
+.skel-avatar { width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0; }
+.skel-image { width: 100%; aspect-ratio: 16/9; border-radius: var(--radius-md); }
+.skel-btn { width: 110px; height: 40px; border-radius: 12px; }
+.skel-chip { width: 72px; height: 24px; border-radius: var(--radius-lg); }
+
+.skel-card {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.skel-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.skel-row:last-child { border-bottom: none; }
+.skel-row .skel-col { flex: 1; }
+
+.skel-table { width: 100%; border: 1px solid rgba(255,255,255,0.12); border-radius: var(--radius-md); overflow: hidden; }
+.skel-table .skel-row { padding: 14px 16px; }
+
+.skel-stat-card { border: 1px solid rgba(255,255,255,0.12); border-radius: var(--radius-lg); padding: var(--sp-4); display: flex; flex-direction: column; gap: 8px; }
+
+/* Reduced motion: keep the shape/placeholder (so state is still legible)
+   but drop the shimmer sweep and any pulsing/scale animation. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton, .skel {
+    animation: none !important;
+    background: rgba(255,255,255,0.07);
+  }
+  .pulse, .card.appear, .appear, .spin-in {
+    animation: none !important;
+  }
+  * { scroll-behavior: auto !important; }
+}
+
+/* =========================
+   Button loading state (Register…, Saving…, Processing…)
+   Applied via JS: element.classList.add('is-loading'); element.disabled = true;
+   Preserves the button's footprint (min-width locked by JS before swapping
+   label) so it never resizes/jumps when the spinner appears.
+   ========================= */
+.btn.is-loading { position: relative; color: transparent !important; pointer-events: none; }
+.btn.is-loading::after {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  width: 16px; height: 16px; margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btnSpin .7s linear infinite;
+}
+.btn.outline.is-loading::after { border-color: rgba(108,140,255,0.35); border-top-color: var(--primary); }
+@keyframes btnSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn.is-loading::after { animation-duration: 1.4s; }
+}
+
+/* Inline spinner for small/short async actions that don't fully replace a button */
+.spinner-inline {
+  display: inline-block; width: 14px; height: 14px; vertical-align: -2px;
+  border: 2px solid rgba(255,255,255,0.3); border-top-color: currentColor;
+  border-radius: 50%; animation: btnSpin .7s linear infinite;
+}
+
+/* =========================
+   Error state (request failed — distinct from empty-state, which means
+   "request succeeded, zero results"). Reuses .empty-state layout/spacing
+   so both feel like the same design language, differentiated by icon/copy.
+   ========================= */
+.error-state { text-align: center; padding: var(--sp-6) var(--sp-4); }
+.error-state .icon { font-size: 42px; margin-bottom: 10px; }
+.error-state h3 { margin: 0 0 8px; }
+.error-state p { color: var(--muted); margin: 0 0 16px; }
+
+/* =========================
+   Network status banner (offline / back online)
+   Inserted once by loading.js and toggled visible/hidden — never removed
+   from the DOM, so aria-live announces reliably without extra churn.
+   ========================= */
+.network-banner {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 9px 16px; font-size: .85rem; font-weight: 600;
+  transform: translateY(-100%); transition: transform var(--trans);
+  text-align: center;
+}
+.network-banner.show { transform: translateY(0); }
+.network-banner.offline { background: var(--danger); color: #fff; }
+.network-banner.online { background: var(--success); color: #06231a; }
+/* Shown when a page falls back to cached/saved data because a live
+   request failed while offline/unreachable — distinct color from a hard
+   error so it doesn't read as "something is broken". */
+.network-banner.cached { background: #7a5cff; color: #fff; }
+@media (prefers-reduced-motion: reduce) { .network-banner { transition: none; } }
+
+/* =========================
+   Navigation progress bar (item 18 — "navigation loading")
+   CampusVibe is a multi-page app (real <a href> navigations), so this is
+   not a SPA route-change indicator — it's a thin top bar that appears the
+   instant an internal link/GET form is activated, so the gap between click
+   and the browser swapping documents never reads as "did that work?".
+   The browser's own navigation tears the whole page (and this bar) down
+   once the next document arrives, so there is no explicit "finish" step.
+   ========================= */
+.nav-progress-bar {
+  position: fixed; left: 0; top: 0; height: 3px; width: 0%;
+  background: linear-gradient(90deg, var(--primary), var(--success, #00c48c));
+  z-index: 10000; opacity: 0; pointer-events: none;
+  transition: width 3.2s cubic-bezier(.15,.7,.3,1), opacity .2s ease;
+}
+.nav-progress-bar.show { width: 78%; opacity: 1; }
+
+/* Stale-while-revalidate: content painted from a saved/cached copy while a
+   background refresh is still in flight (or failed offline). Subtle only —
+   this is real content, not a loading state, so it shouldn't look broken. */
+.is-stale-data { opacity: .82; }
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress-bar { transition: opacity .15s ease; }
+  .nav-progress-bar.show { width: 100%; }
+}
 
 /* Generic reveal animation for cards that fade/pop in as they render */
 .appear { animation: pop .3s ease both; }
@@ -886,6 +1119,7 @@ html[dir="rtl"] .feature-bar { direction: rtl; }
   color: var(--fg); font-size: .88rem; text-align: left; cursor: pointer;
 }
 .share-option:hover { background: rgba(108,140,255,0.14); }
+.share-option:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; background: rgba(108,140,255,0.14); }
 
 .share-toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);
