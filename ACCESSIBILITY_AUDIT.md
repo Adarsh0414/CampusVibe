@@ -856,7 +856,41 @@ Progress Log for the running narrative of what was done, in order.)*
   hearing or seeing an actual assistive-technology run.
 - Remaining: Part 7.
 
-### Part 7 — Testing & documentation
+### Part 7 — Live Lighthouse baseline & remediation
+
+A real Lighthouse Accessibility audit was run manually in Chromium on the
+deployed homepage (`index.html`) on **13 September 2026**. The initial live
+Accessibility score was **90**. Lighthouse reported four actionable findings:
+
+- **Select elements do not have associated label elements** — the homepage
+  sort `<select id="sort">` had no programmatic label.
+- **Background and foreground colors do not have a sufficient contrast ratio**
+  — the live homepage had low-contrast hero text, the outline "My Tickets"
+  button, and empty-state text over the starfield background.
+- **Heading elements are not in a sequentially-descending order** — the
+  homepage footer used `<h5>` headings after the page's `<h2>` content.
+- **Identical links have the same purpose** — two homepage links pointed to
+  `#catalog` but exposed different accessible names ("Browse Events" and
+  "Events").
+
+All four findings have now been remediated in source:
+
+- Added a visually-hidden `<label for="sort">Sort events</label>`.
+- Added opaque dark backing to hero and empty-state text and changed the
+  outline button to white text/border on a dark background, removing the
+  low-contrast text combinations reported by the live audit.
+- Changed the homepage footer section headings from `<h5>` to `<h2>` and
+  retained the existing visual sizing in CSS.
+- Gave the `#catalog` quick-link a localized `aria-label` matching the
+  primary "Browse Events" link. Added `data-i18n-aria-label` support to the
+  shared i18n engine so that accessible names follow the selected language.
+
+**Verification status:** source-level checks after these changes pass for
+select/label association, homepage heading order, and JavaScript syntax. The
+updated site has **not yet been redeployed and re-run through Lighthouse**, so
+no post-fix Lighthouse score is claimed here.
+
+### Part 8 — Testing & documentation
 
 Traced full keyboard-only journeys through the source (event handlers,
 `tabindex` values, focus-management calls) rather than a live browser
@@ -967,6 +1001,10 @@ see "Explicitly NOT performed" above.
 | A11Y-017 | Button/tab gradients failed contrast | ~2.9–4.3:1 white text on gradient (fails AA) | 5.2–7.9:1 via darker button-specific gradient tokens |
 | A11Y-018 | English fallback text mispronounced | No per-element `lang` override on fallback strings | `lang="en"` set on fallback text specifically |
 | A11Y-019 | Redundant icons/alt text | Logo alt duplicated adjacent heading; ~60 decorative emoji announced by name | Logo `alt=""`; decorative emoji `aria-hidden="true"` |
+| A11Y-020 | Homepage sort selector lacked accessible name | Live Lighthouse reported unlabeled `<select id="sort">` | Visually-hidden `<label for="sort">Sort events</label>` |
+| A11Y-021 | Homepage text had live contrast failures | Hero/empty-state text and outline button failed Lighthouse contrast audit | Dark opaque text backplates and high-contrast outline button treatment |
+| A11Y-022 | Homepage footer heading hierarchy skipped levels | `<h2>` content was followed by `<h5>` footer headings | Footer section headings changed to `<h2>` with CSS preserving visual size |
+| A11Y-023 | Homepage duplicate-purpose catalog links | Two `#catalog` links exposed different names | Localized `aria-label` on the quick-link, with i18n support |
 
 Every "After" above reflects a real, verifiable code change in this
 repository (see the corresponding `A11Y-0xx` entry for the exact diff
@@ -978,10 +1016,12 @@ tooling *would* report — no such tooling was run.
 CampusVibe does **not** claim full WCAG 2.2 Level AA conformance. What
 can honestly be said, based on the work recorded in this document:
 
-- 19 distinct accessibility issues were identified across navigation,
+- 23 distinct accessibility issues are now recorded across navigation,
   forms, dynamic content, custom widgets (tabs, ticket selector, chatbot,
-  dropdown menus), color contrast, icons, and internationalization, and
-  all 19 were remediated in this repository.
+  dropdown menus), color contrast, icons, internationalization, and live
+  homepage Lighthouse findings. All 23 have corresponding source-level
+  remediations in this repository; the four live Lighthouse findings still
+  require a post-deployment Lighthouse re-run to verify the rendered result.
 - Every fix was checked against the relevant WCAG 2.2 success criterion
   and, where applicable, the WAI-ARIA Authoring Practices Guide pattern
   for that widget type (Tabs, Menu Button, radiogroup).

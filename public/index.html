@@ -89,7 +89,7 @@
         <a class="btn outline btn-hero" href="/my-tickets.html"><span data-i18n="my_tickets_btn">My Tickets</span></a>
       </div>
       <div class="feature-bar reveal delay-3" id="features">
-        <a class="feature" href="#catalog"><span aria-hidden="true">🎉</span> <span data-i18n="quick_events">Events</span></a>
+        <a class="feature" href="#catalog" data-i18n-aria-label="browse_events" aria-label="Browse Events"><span aria-hidden="true">🎉</span> <span data-i18n="quick_events">Events</span></a>
         <a class="feature" href="/profile.html"><span aria-hidden="true">👤</span> <span data-i18n="quick_profile">Profile</span></a>
         <a class="feature" href="/faq.html"><span aria-hidden="true">❓</span> <span data-i18n="quick_help">Help</span></a>
       </div>
@@ -109,6 +109,7 @@
       <div class="filter-group">
         <input type="search" id="search" class="input" placeholder="🔍 Search events (e.g., fest, workshop)..." data-i18n-placeholder="search_placeholder" />
       </div>
+      <label for="sort" class="sr-only">Sort events</label>
       <select id="sort" class="input" style="max-width:200px;">
         <option value="start_time">Soonest first</option>
         <option value="newest">Newest added</option>
@@ -134,13 +135,13 @@
           <p class="muted footer-tagline"><span data-i18n="footer_tagline">Ideal Management, Ideal Moments</span>. The easiest way to discover and run campus events from registration to QR check-in.</p>
         </div>
         <div class="footer-col">
-          <h5>Explore</h5>
+          <h2>Explore</h2>
           <a href="/#catalog">Browse Events</a>
           <a href="/my-tickets.html">My Tickets</a>
           <a href="/profile.html">Profile</a>
         </div>
         <div class="footer-col">
-          <h5>Support</h5>
+          <h2>Support</h2>
           <a href="/faq.html">FAQ / Help</a>
           <a href="/register.html">Create Account</a>
           <a href="/organizer-apply.html">Become an Organizer</a>

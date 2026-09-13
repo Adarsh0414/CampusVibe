@@ -183,8 +183,8 @@ body::after {
   background: transparent !important;
 }
 .hero-inner { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.hero h2 { margin: 0; font-size: 2.6rem; letter-spacing: .4px; }
-.hero p { margin: 0 20px 22px; color: var(--muted); max-width: 860px; }
+.hero h2 { margin: 0; font-size: 2.6rem; letter-spacing: .4px; color: #fff; }
+.hero p { margin: 0 20px 22px; color: #fff; max-width: 860px; }
 .hero-actions { display: flex; gap: 12px; justify-content: center; }
 
 .reveal { opacity: 0; transform: translateY(8px); animation: reveal .7s ease forwards; }
@@ -242,8 +242,14 @@ body::after {
 .btn.primary:hover { transform: translateY(-1px); filter: brightness(1.02); }
 
 .btn.outline {
-  border-color: var(--primary); color: var(--primary);
+  border-color: #d7e0ff; color: #d7e0ff;
   background: rgba(108,140,255,0.08);
+}
+
+/* Accessibility: opaque background for the hero My Tickets button */
+.hero-actions .btn.outline {
+  background: #0c1230;
+  color: #ffffff;
 }
 .btn.outline:hover { background: rgba(108,140,255,0.16); transform: translateY(-1px); }
 
@@ -485,21 +491,21 @@ body::before {
 .footer-brand img { width: 32px; height: 32px; }
 .footer-brand span { font-weight: 700; font-size: 1.05rem; color: var(--fg); }
 .footer-tagline { font-size: .9rem; max-width: 320px; line-height: 1.5; }
-.footer-col h5 { margin: 0 0 10px; font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-2); }
+.footer-col h2 { margin: 0 0 10px; font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; color: var(--fg); }
 .footer-col a { display: block; padding: 4px 0; color: var(--muted); font-size: .92rem; }
 .footer-col a:hover { color: var(--accent); }
 @media (max-width: 700px) {
   .footer-brand span { font-size: .95rem; }
   .footer-brand img { width: 28px; height: 28px; }
   .footer-tagline { font-size: .78rem; line-height: 1.45; max-width: none; }
-  .footer-col h5 { font-size: .72rem; margin-bottom: 8px; }
+  .footer-col h2 { font-size: .72rem; margin-bottom: 8px; }
   .footer-col a { font-size: .8rem; padding: 3px 0; }
 }
 @media (max-width: 480px) {
   .footer-brand span { font-size: .85rem; }
   .footer-brand img { width: 22px; height: 22px; }
   .footer-tagline { font-size: .7rem; line-height: 1.4; }
-  .footer-col h5 { font-size: .65rem; margin-bottom: 6px; }
+  .footer-col h2 { font-size: .65rem; margin-bottom: 6px; }
   .footer-col a { font-size: .72rem; padding: 2px 0; }
 }
 .footer-bottom { border-top: 1px solid var(--border); padding-top: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted-2); font-size: .85rem; }
@@ -661,7 +667,7 @@ body::before {
    ========================= */
 .empty-state {
   text-align: center; padding: 60px 24px; border: 1px dashed var(--border-2); border-radius: var(--radius-lg);
-  background: rgba(255,255,255,0.02);
+  background: rgba(11,16,33,.88);
 }
 .empty-state h3 { margin: 0 0 8px; }
 .empty-state .icon { font-size: 42px; margin-bottom: 10px; }

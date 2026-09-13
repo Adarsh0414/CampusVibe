@@ -76,6 +76,11 @@
       el.setAttribute('title', t(key, lang));
       markFallback(el, key);
     });
+    scope.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+      const key = el.getAttribute('data-i18n-aria-label');
+      el.setAttribute('aria-label', t(key, lang));
+      markFallback(el, key);
+    });
 
     document.documentElement.setAttribute('lang', lang);
     const dir = (getStrings()[lang] || {}).dir || 'ltr';
